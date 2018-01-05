@@ -11,13 +11,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use futures::{future, Future};
-use std::{any, error};
+use std::fmt;
+use super::{Error, Step, StepCallback, StepResult, Value};
 
-pub struct JobCoprocessorDag {}
+pub struct CoprocessorDagStep {}
 
-impl super::Job for JobCoprocessorDag {
-    fn async_work(&mut self) -> super::JobFuture<super::JobResult> {
-        Box::new(future::ok(super::JobResult::Foo))
+impl Step for CoprocessorDagStep {
+    fn async_work(&self, on_done: StepCallback) {
+        on_done(StepResult::Finish(Ok(Value::Foo)));
+    }
+}
+
+impl fmt::Display for CoprocessorDagStep {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CoprocessorDagStep")
     }
 }

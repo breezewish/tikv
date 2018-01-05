@@ -11,15 +11,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod job;
 pub mod task;
 
-use futures::{future, Future};
-use futures::sync::oneshot;
-use std::{any, cell, error, io, rc, sync};
+use std::sync;
 
 use util::threadpool::{Context, ContextFactory, ThreadPool, ThreadPoolBuilder};
-use util::worker::{Builder as WorkerBuilder, Runnable, Scheduler, Worker};
+use util::worker::{Runnable, ScheduleError, Scheduler, Worker};
 
 struct RunnerEnvironment {
     pool_read_critical: ThreadPool<WorkerContext>,
@@ -94,64 +91,70 @@ impl RunnerEnvironment {
     }
 }
 
+fn async_execute_step(
+    runner_env: &RunnerEnvironment,
+    scheduler: &Scheduler<task::Task>,
+    step: Box<task::Step>,
+    priority: task::Priority,
+    callback: task::Callback,
+) {
+    if runner_env.is_read_busy() {
+        callback(Err(task::Error::Busy));
+        return;
+    }
+    info!(
+        "async_execute_step, priority = {:?}, step = {}",
+        priority,
+        step
+    );
+    let t = task::Task {
+        callback,
+        step,
+        priority,
+    };
+    match scheduler.schedule(t) {
+        Err(ScheduleError::Full(t)) => (t.callback)(Err(task::Error::Busy)),
+        Err(ScheduleError::Stopped(_)) => panic!("worker scheduler is stopped"), // should we panic?
+        Ok(_) => (),
+    }
+}
+
 struct Runner {
+    // need mutex here because shutdown is mutable
     runner_env: sync::Arc<sync::Mutex<RunnerEnvironment>>,
     scheduler: Scheduler<task::Task>,
 }
 
 impl Runnable<task::Task> for Runner {
-    fn run(&mut self, mut t: task::Task) {
+    fn run(&mut self, t: task::Task) {
+        info!("GrpcRequestRunner::run");
+
         let scheduler = self.scheduler.clone();
-        info!(
-            "GrpcRequestWorker::run, t.current_state = {:?}",
-            t.current_state
-        );
-        let env = self.runner_env.lock().unwrap();
-        let pool = env.get_pool_by_priority(t.priority);
+        let runner_env = self.runner_env.clone();
+
+        let env_instance = self.runner_env.lock().unwrap();
+        let pool = env_instance.get_pool_by_priority(t.priority);
+
         pool.execute(move |ctx: &mut WorkerContext| {
-            let f = t.job.async_pre();
-            f.and_then(move |_| {
-                t.current_state = task::State::BeforeWork;
-                scheduler.schedule(t);
-                future::ok(())
-            });
+            let priority = t.priority;
+            let callback = t.callback;
+            t.step.async_work(
+                box (move |result: task::StepResult| match result {
+                    task::StepResult::Continue(job) => {
+                        async_execute_step(
+                            &runner_env.lock().unwrap(),
+                            &scheduler,
+                            job,
+                            priority,
+                            callback,
+                        );
+                    }
+                    task::StepResult::Finish(result) => {
+                        callback(result);
+                    }
+                }),
+            );
         });
-        //        match t.current_state {
-        //            task::State::BeforePre => {
-        //                pool.execute(move |ctx: &mut WorkerContext| {
-        //                    let mut j = t.job;
-        //                    let f = j.async_pre();
-        //                    f.and_then(|_| {
-        //                        t.current_state = task::State::BeforeWork;
-        //                        self.task_scheduler.schedule(t);
-        //                        future::ok(())
-        //                    });
-        //                });
-        //            }
-        //            task::State::BeforeWork => {
-        //                pool.execute(move |ctx: &mut WorkerContext| {
-        //                    let mut j = t.job;
-        //                    let f = j.async_work();
-        //                    f.and_then(|r| {
-        //                        t.work_result = Some(r);
-        //                        t.current_state = task::State::BeforePost;
-        //                        self.task_scheduler.schedule(t);
-        //                        future::ok(())
-        //                    });
-        //                });
-        //            }
-        //            task::State::BeforePost => {
-        //                pool.execute(move |ctx: &mut WorkerContext| {
-        //                    let mut j = t.job;
-        //                    let f = j.async_post();
-        //                    f.and_then(|_| {
-        //                        t.current_state = task::State::Done;
-        //                        t.future_sender.send(t.work_result.unwrap());
-        //                        future::ok(())
-        //                    });
-        //                });
-        //            }
-        //        }
     }
 }
 
@@ -171,33 +174,24 @@ impl GrpcRequestWorker {
         GrpcRequestWorker { runner_env, worker }
     }
 
-    /// Add and execute a request job on the specified thread pool and get the result when it is
-    /// finished. The future will be failed if tasks in thread pool exceeds the limit.
+    /// Execute a task on the specified thread pool and get the result when it is finished.
     ///
-    /// The caller should ensure the matching of the task and its priority, for example, for
+    /// The caller should ensure the matching of the step and its priority, for example, for
     /// tasks about reading, the priority should be ReadXxx and the behavior is undefined if a
     /// WriteXxx priority is specified instead.
-    pub fn async_handle_job(
+    pub fn async_execute(
         &self,
-        job: Box<job::Job + Send>,
+        begin_step: Box<task::Step>,
         priority: task::Priority,
-    ) -> job::JobFuture<job::JobResult> {
-        if self.runner_env.lock().unwrap().is_read_busy() || self.worker.is_busy() {
-            return Box::new(future::err(job::JobError::Busy));
-        }
-        info!("async_handle_job, priority = {}", priority);
-        let (future_sender, future) = oneshot::channel::<job::JobResult>();
-        let t = task::Task {
-            future_sender,
-            job,
+        callback: task::Callback,
+    ) {
+        async_execute_step(
+            &self.runner_env.lock().unwrap(),
+            &self.worker.scheduler(),
+            begin_step,
             priority,
-            current_state: task::State::BeforePre,
-            work_result: None,
-        };
-        match self.worker.scheduler().schedule(t) {
-            Err(e) => Box::new(future::err(job::JobError::Busy)),
-            Ok(_) => Box::new(future.map_err(|_| job::JobError::Canceled)),
-        }
+            callback,
+        );
     }
 
     pub fn start(&mut self) {
@@ -240,23 +234,21 @@ mod tests {
         grpc_worker.start();
 
         let (tx, rx) = sync::mpsc::channel();
-        grpc_worker
-            .async_handle_job(
-                Box::new(job::read::JobCoprocessorDag {}),
-                task::Priority::ReadCritical,
-            )
-            .then(|result| {
+        grpc_worker.async_execute_step(
+            Box::new(task::read::CoprocessorDagStep {}),
+            task::Priority::ReadCritical,
+            box (move |result| {
                 match result {
                     Err(e) => {
-                        info!("handle_job result: err = {:?}", e);
+                        println!("async_execute_step result: err = {:?}", e);
                     }
                     Ok(r) => {
-                        info!("handle_job result: ok = {:?}", r);
+                        println!("async_execute_step result: ok = {:?}", r);
                     }
                 }
                 tx.send(1);
-                future::ok::<(), ()>(())
-            });
+            }),
+        );
         assert_eq!(rx.recv_timeout(Duration::from_secs(3)).unwrap(), 1);
         grpc_worker.shutdown();
     }
