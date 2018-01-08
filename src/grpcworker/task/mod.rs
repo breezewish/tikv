@@ -16,6 +16,8 @@ mod util;
 
 use std::{boxed, fmt, result};
 
+pub use super::WorkerThreadContext;
+
 #[derive(Debug, Copy, Clone)]
 pub enum Priority {
     ReadNormal,
@@ -35,13 +37,14 @@ pub enum Error {
     ScheduleError,
     Busy,
     Canceled,
+    SnapshotError, // TODO
 }
 
 pub type Result = result::Result<Value, Error>;
 pub type Callback = Box<boxed::FnBox(Result) + Send>;
 
 /// Task holds everything about a particular functionality. A task may consist of many steps
-/// to be executed, each of which is a job. Only the latest job is stored in the task.
+/// to be executed. Only current step is stored in the task.
 pub struct Task {
     pub callback: Callback,
     pub step: Box<Step>,
@@ -66,10 +69,10 @@ pub enum StepResult {
     Finish(Result),
 }
 
-pub type StepCallback = Box<boxed::FnBox(StepResult)>;
+pub type StepCallback = Box<boxed::FnBox(StepResult) + Send>;
 
 /// Step is a smallest single unit to be executed in the thread pool. A complete functionality may
 /// be assembled by multiple steps.
 pub trait Step: Send + fmt::Display {
-    fn async_work(&self, on_done: StepCallback);
+    fn async_work(self: Box<Self>, context: &mut WorkerThreadContext, on_done: StepCallback);
 }

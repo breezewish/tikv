@@ -15,42 +15,74 @@ pub mod task;
 
 use std::sync;
 
-use util::threadpool::{Context, ContextFactory, ThreadPool, ThreadPoolBuilder};
+use util::threadpool::{self, ThreadPool, ThreadPoolBuilder};
 use util::worker::{Runnable, ScheduleError, Scheduler, Worker};
+use storage::Engine;
 
 struct RunnerEnvironment {
-    pool_read_critical: ThreadPool<WorkerContext>,
-    pool_read_high: ThreadPool<WorkerContext>,
-    pool_read_normal: ThreadPool<WorkerContext>,
-    pool_read_low: ThreadPool<WorkerContext>,
+    pool_read_critical: ThreadPool<WorkerThreadContext>,
+    pool_read_high: ThreadPool<WorkerThreadContext>,
+    pool_read_normal: ThreadPool<WorkerThreadContext>,
+    pool_read_low: ThreadPool<WorkerThreadContext>,
     max_read_tasks: usize,
 }
 
+pub struct WorkerThreadContext {
+    engine: Box<Engine>,
+}
+
+impl threadpool::Context for WorkerThreadContext {}
+
+struct WorkerThreadContextFactory {
+    engine: Box<Engine>,
+}
+
+impl threadpool::ContextFactory<WorkerThreadContext> for WorkerThreadContextFactory {
+    fn create(&self) -> WorkerThreadContext {
+        WorkerThreadContext {
+            engine: self.engine.clone(),
+        }
+    }
+}
+
 impl RunnerEnvironment {
-    fn new(concurrency: usize, max_read_tasks: usize, stack_size: usize) -> RunnerEnvironment {
+    fn new(
+        concurrency: usize,
+        max_read_tasks: usize,
+        stack_size: usize,
+        engine: Box<Engine>,
+    ) -> RunnerEnvironment {
         RunnerEnvironment {
             max_read_tasks,
             pool_read_critical: ThreadPoolBuilder::new(
                 thd_name!("grpc-request-pool-read-critical"),
-                WorkerContextFactory {},
+                WorkerThreadContextFactory {
+                    engine: engine.clone(),
+                },
             ).thread_count(concurrency)
                 .stack_size(stack_size)
                 .build(),
             pool_read_high: ThreadPoolBuilder::new(
                 thd_name!("grpc-request-pool-read-high"),
-                WorkerContextFactory {},
+                WorkerThreadContextFactory {
+                    engine: engine.clone(),
+                },
             ).thread_count(concurrency)
                 .stack_size(stack_size)
                 .build(),
             pool_read_normal: ThreadPoolBuilder::new(
                 thd_name!("grpc-request-pool-read-normal"),
-                WorkerContextFactory {},
+                WorkerThreadContextFactory {
+                    engine: engine.clone(),
+                },
             ).thread_count(concurrency)
                 .stack_size(stack_size)
                 .build(),
             pool_read_low: ThreadPoolBuilder::new(
                 thd_name!("grpc-request-pool-read-low"),
-                WorkerContextFactory {},
+                WorkerThreadContextFactory {
+                    engine: engine.clone(),
+                },
             ).thread_count(concurrency)
                 .stack_size(stack_size)
                 .build(),
@@ -81,7 +113,7 @@ impl RunnerEnvironment {
     }
 
     /// Get a mutable reference for the thread pool by the specified priority flag.
-    fn get_pool_by_priority(&self, priority: task::Priority) -> &ThreadPool<WorkerContext> {
+    fn get_pool_by_priority(&self, priority: task::Priority) -> &ThreadPool<WorkerThreadContext> {
         match priority {
             task::Priority::ReadCritical => &self.pool_read_critical,
             task::Priority::ReadHigh => &self.pool_read_high,
@@ -102,7 +134,7 @@ fn async_execute_step(
         callback(Err(task::Error::Busy));
         return;
     }
-    info!(
+    println!(
         "async_execute_step, priority = {:?}, step = {}",
         priority,
         step
@@ -126,8 +158,8 @@ struct Runner {
 }
 
 impl Runnable<task::Task> for Runner {
-    fn run(&mut self, t: task::Task) {
-        info!("GrpcRequestRunner::run");
+    fn run(&mut self, mut t: task::Task) {
+        println!("GrpcRequestRunner::run");
 
         let scheduler = self.scheduler.clone();
         let runner_env = self.runner_env.clone();
@@ -135,25 +167,24 @@ impl Runnable<task::Task> for Runner {
         let env_instance = self.runner_env.lock().unwrap();
         let pool = env_instance.get_pool_by_priority(t.priority);
 
-        pool.execute(move |ctx: &mut WorkerContext| {
+        pool.execute(move |context: &mut WorkerThreadContext| {
             let priority = t.priority;
             let callback = t.callback;
-            t.step.async_work(
-                box (move |result: task::StepResult| match result {
-                    task::StepResult::Continue(job) => {
-                        async_execute_step(
-                            &runner_env.lock().unwrap(),
-                            &scheduler,
-                            job,
-                            priority,
-                            callback,
-                        );
-                    }
-                    task::StepResult::Finish(result) => {
-                        callback(result);
-                    }
-                }),
-            );
+            let step = t.step;
+            step.async_work(context, box move |result: task::StepResult| match result {
+                task::StepResult::Continue(job) => {
+                    async_execute_step(
+                        &runner_env.lock().unwrap(),
+                        &scheduler,
+                        job,
+                        priority,
+                        callback,
+                    );
+                }
+                task::StepResult::Finish(result) => {
+                    callback(result);
+                }
+            });
         });
     }
 }
@@ -164,11 +195,17 @@ pub struct GrpcRequestWorker {
 }
 
 impl GrpcRequestWorker {
-    pub fn new(concurrency: usize, max_read_tasks: usize, stack_size: usize) -> GrpcRequestWorker {
+    pub fn new(
+        concurrency: usize,
+        max_read_tasks: usize,
+        stack_size: usize,
+        engine: Box<Engine>,
+    ) -> GrpcRequestWorker {
         let runner_env = sync::Arc::new(sync::Mutex::new(RunnerEnvironment::new(
             concurrency,
             max_read_tasks,
             stack_size,
+            engine,
         )));
         let worker = Worker::new("grpc-request-worker");
         GrpcRequestWorker { runner_env, worker }
@@ -208,36 +245,36 @@ impl GrpcRequestWorker {
     }
 }
 
-struct WorkerContext {}
-
-impl Context for WorkerContext {}
-
-struct WorkerContextFactory {}
-
-impl ContextFactory<WorkerContext> for WorkerContextFactory {
-    fn create(&self) -> WorkerContext {
-        WorkerContext {}
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use util::worker::Worker;
     use std::time::Duration;
-    use std::sync;
-    use futures::future;
+    use std::sync::mpsc::channel;
+    use storage;
+    use kvproto::kvrpcpb;
     use super::*;
 
     #[test]
     fn test_scheduler_run() {
-        let mut grpc_worker = GrpcRequestWorker::new(10, 10, 10240);
+        let config = storage::Config::default();
+        let mut storage = storage::Storage::new(&config).unwrap();
+
+        let (tx, rx) = channel();
+
+        let mut grpc_worker = GrpcRequestWorker::new(10, 10, 10000000, storage.get_engine());
         grpc_worker.start();
 
-        let (tx, rx) = sync::mpsc::channel();
-        grpc_worker.async_execute_step(
-            Box::new(task::read::CoprocessorDagStep {}),
+        let mut get_req = kvrpcpb::GetRequest::new();
+        get_req.set_context(kvrpcpb::Context::new());
+        get_req.set_key(b"x".to_vec());
+        get_req.set_version(100);
+
+        grpc_worker.async_execute(
+            Box::new(task::read::KvGetStep {
+                req: get_req,
+            }),
             task::Priority::ReadCritical,
-            box (move |result| {
+            box move |result| {
                 match result {
                     Err(e) => {
                         println!("async_execute_step result: err = {:?}", e);
@@ -247,7 +284,7 @@ mod tests {
                     }
                 }
                 tx.send(1);
-            }),
+            },
         );
         assert_eq!(rx.recv_timeout(Duration::from_secs(3)).unwrap(), 1);
         grpc_worker.shutdown();
