@@ -1,4 +1,4 @@
-// Copyright 2017 PingCAP, Inc.
+// Copyright 2018 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@ pub mod read;
 mod util;
 
 use std::{boxed, fmt, result};
+use storage;
 
 pub use super::WorkerThreadContext;
 
@@ -26,18 +27,38 @@ pub enum Priority {
     ReadCritical,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum Value {
     Foo,
     Bar,
+    StorageValue(Option<storage::Value>),
 }
 
-#[derive(Debug, Copy, Clone)]
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Value::Foo => write!(f, "Foo"),
+            Value::Bar => write!(f, "Bar"),
+            Value::StorageValue(_) => write!(f, "StorageValue"),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum Error {
-    ScheduleError,
     Busy,
     Canceled,
-    SnapshotError, // TODO
+    StorageError(storage::Error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::Busy => write!(f, "Busy"),
+            Error::Canceled => write!(f, "Canceled"),
+            Error::StorageError(_) => write!(f, "StorageError"),
+        }
+    }
 }
 
 pub type Result = result::Result<Value, Error>;
@@ -47,18 +68,17 @@ pub type Callback = Box<boxed::FnBox(Result) + Send>;
 /// to be executed. Only current step is stored in the task.
 pub struct Task {
     pub callback: Callback,
-    pub step: Box<Step>,
+    pub step: Option<Box<Step>>,
     pub priority: Priority,
 }
 
 impl fmt::Display for Task {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Task priority = {:?}, step = {}",
-            self.priority,
-            self.step
-        )
+        write!(f, "Task priority = {:?}, step = ", self.priority)?;
+        match self.step {
+            None => write!(f, "None"),
+            Some(ref step) => write!(f, "{}", step),
+        }
     }
 }
 

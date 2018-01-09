@@ -1,4 +1,4 @@
-// Copyright 2017 PingCAP, Inc.
+// Copyright 2018 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,103 +13,78 @@
 
 use std::fmt;
 use super::{Error, Step, StepCallback, StepResult, Value, WorkerThreadContext};
-//use super::util::SnapshotStep;
+use super::util::{SnapshotNextStepBuilder, SnapshotStep};
 use kvproto::kvrpcpb;
 use storage;
 
 pub struct KvGetStep {
-    pub req: kvrpcpb::GetRequest,
+    pub req_context: kvrpcpb::Context,
+    pub key: Vec<u8>,
+    pub start_ts: u64,
 }
 
 impl fmt::Display for KvGetStep {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "KvGet step 1, req = {:?}", self.req)
-    }
-}
-//
-//impl SnapshotStep for KvGetStep {
-//    #[inline]
-//    fn build_next_step(&self, snapshot: Box<storage::Snapshot>) -> Box<Step> {
-//        box KvGetStepSecond {
-//            snapshot,
-//            req_context: self.req.take_context(),
-//            key: storage::Key::from_raw(self.req.get_key()),
-//            start_ts: self.req.get_version(),
-//        }
-//    }
-//    #[inline]
-//    fn get_request_context(&self) -> &kvrpcpb::Context {
-//        &self.req.get_context()
-//    }
-//}
-
-impl Step for KvGetStep {
-    fn async_work(mut self: Box<Self>, context: &mut WorkerThreadContext, on_done: StepCallback) {
-        println!("KvGetStep async_work");
-        let req = self.req;
-        let req_context = req.get_context();
-        let isolation_level = req_context.get_isolation_level();
-        let not_fill_cache = req_context.get_not_fill_cache();
-        let key = storage::Key::from_raw(req.get_key());
-        let start_ts = req.get_version();
-        println!("KvGetStep async_work2");
-        context.engine.async_snapshot(
-            req_context,
-            box move |(_, snapshot_result)| {
-                println!("KvGetStep async_snapshot callback");
-                match snapshot_result {
-                    Ok(snapshot) => {
-                        let next_step = box KvGetStepSecond {
-                            snapshot: Some(snapshot),
-                            isolation_level,
-                            not_fill_cache,
-                            key,
-                            start_ts,
-                        };
-                        on_done(StepResult::Continue(next_step));
-                    }
-                    Err(e) => {
-                        on_done(StepResult::Finish(Err(Error::SnapshotError)));
-                    }
-                }
-            },
-        );
+        write!(f, "KvGet[1]")
     }
 }
 
-struct KvGetStepSecond {
-    snapshot: Option<Box<storage::Snapshot>>,
+impl SnapshotStep for KvGetStep {
+    #[inline]
+    fn create_next_step_builder(&self) -> Box<SnapshotNextStepBuilder> {
+        box KvGetStepSecondBuilder {
+            isolation_level: self.req_context.get_isolation_level(),
+            not_fill_cache: self.req_context.get_not_fill_cache(),
+            key: storage::Key::from_raw(self.key.as_slice()),
+            start_ts: self.start_ts,
+        }
+    }
+    #[inline]
+    fn get_request_context(&self) -> &kvrpcpb::Context {
+        &self.req_context
+    }
+}
+
+struct KvGetStepSecondBuilder {
     isolation_level: kvrpcpb::IsolationLevel,
     not_fill_cache: bool,
     key: storage::Key,
     start_ts: u64,
 }
 
+impl SnapshotNextStepBuilder for KvGetStepSecondBuilder {
+    fn build(mut self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<Step> {
+        box KvGetStepSecond {
+            snapshot: Some(snapshot),
+            builder: self,
+        }
+    }
+}
+
+struct KvGetStepSecond {
+    snapshot: Option<Box<storage::Snapshot>>,
+    builder: Box<KvGetStepSecondBuilder>,
+}
+
 impl fmt::Display for KvGetStepSecond {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "KvGet step 2, isolation_level = {:?}, not_fill_cache = {}, key = {}, start_ts = {}",
-            self.isolation_level,
-            self.not_fill_cache,
-            self.key,
-            self.start_ts
-        )
+        write!(f, "KvGet[2]")
     }
 }
 
 impl Step for KvGetStepSecond {
     fn async_work(mut self: Box<Self>, context: &mut WorkerThreadContext, on_done: StepCallback) {
-        println!("KvGetStepSecond async_work");
         let mut statistics = storage::Statistics::default();
         let snap_store = storage::SnapshotStore::new(
             self.snapshot.take().unwrap(),
-            self.start_ts,
-            self.isolation_level,
-            !self.not_fill_cache,
+            self.builder.start_ts,
+            self.builder.isolation_level,
+            !self.builder.not_fill_cache,
         );
-        let res = snap_store.get(&self.key, &mut statistics);
-        // TODO
-        on_done(StepResult::Finish(Ok(Value::Foo)));
+        let res = snap_store.get(&self.builder.key, &mut statistics);
+        on_done(StepResult::Finish(match res {
+            Ok(val) => Ok(Value::StorageValue(val)),
+            Err(e) => Err(Error::StorageError(storage::Error::from(e))),
+        }));
     }
 }

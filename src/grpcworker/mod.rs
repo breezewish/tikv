@@ -1,4 +1,4 @@
-// Copyright 2017 PingCAP, Inc.
+// Copyright 2018 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,12 +12,16 @@
 // limitations under the License.
 
 pub mod task;
+pub mod config;
 
-use std::sync;
+use std::{io, result, sync};
 
 use util::threadpool::{self, ThreadPool, ThreadPoolBuilder};
 use util::worker::{Runnable, ScheduleError, Scheduler, Worker};
 use storage::Engine;
+
+pub use self::config::Config;
+pub use self::task::{Callback, Error, Priority, Result, Step, Value};
 
 struct RunnerEnvironment {
     pool_read_critical: ThreadPool<WorkerThreadContext>,
@@ -47,7 +51,10 @@ impl threadpool::ContextFactory<WorkerThreadContext> for WorkerThreadContextFact
 
 impl RunnerEnvironment {
     fn new(
-        concurrency: usize,
+        read_critical_concurrency: usize,
+        read_high_concurrency: usize,
+        read_normal_concurrency: usize,
+        read_low_concurrency: usize,
         max_read_tasks: usize,
         stack_size: usize,
         engine: Box<Engine>,
@@ -59,7 +66,7 @@ impl RunnerEnvironment {
                 WorkerThreadContextFactory {
                     engine: engine.clone(),
                 },
-            ).thread_count(concurrency)
+            ).thread_count(read_critical_concurrency)
                 .stack_size(stack_size)
                 .build(),
             pool_read_high: ThreadPoolBuilder::new(
@@ -67,7 +74,7 @@ impl RunnerEnvironment {
                 WorkerThreadContextFactory {
                     engine: engine.clone(),
                 },
-            ).thread_count(concurrency)
+            ).thread_count(read_high_concurrency)
                 .stack_size(stack_size)
                 .build(),
             pool_read_normal: ThreadPoolBuilder::new(
@@ -75,7 +82,7 @@ impl RunnerEnvironment {
                 WorkerThreadContextFactory {
                     engine: engine.clone(),
                 },
-            ).thread_count(concurrency)
+            ).thread_count(read_normal_concurrency)
                 .stack_size(stack_size)
                 .build(),
             pool_read_low: ThreadPoolBuilder::new(
@@ -83,7 +90,7 @@ impl RunnerEnvironment {
                 WorkerThreadContextFactory {
                     engine: engine.clone(),
                 },
-            ).thread_count(concurrency)
+            ).thread_count(read_low_concurrency)
                 .stack_size(stack_size)
                 .build(),
         }
@@ -113,42 +120,47 @@ impl RunnerEnvironment {
     }
 
     /// Get a mutable reference for the thread pool by the specified priority flag.
-    fn get_pool_by_priority(&self, priority: task::Priority) -> &ThreadPool<WorkerThreadContext> {
+    fn get_pool_by_priority(&self, priority: Priority) -> &ThreadPool<WorkerThreadContext> {
         match priority {
-            task::Priority::ReadCritical => &self.pool_read_critical,
-            task::Priority::ReadHigh => &self.pool_read_high,
-            task::Priority::ReadNormal => &self.pool_read_normal,
-            task::Priority::ReadLow => &self.pool_read_low,
+            Priority::ReadCritical => &self.pool_read_critical,
+            Priority::ReadHigh => &self.pool_read_high,
+            Priority::ReadNormal => &self.pool_read_normal,
+            Priority::ReadLow => &self.pool_read_low,
         }
     }
 }
 
-fn async_execute_step(
+#[inline]
+fn async_execute_task(
     runner_env: &RunnerEnvironment,
     scheduler: &Scheduler<task::Task>,
-    step: Box<task::Step>,
-    priority: task::Priority,
-    callback: task::Callback,
+    t: task::Task,
 ) {
     if runner_env.is_read_busy() {
-        callback(Err(task::Error::Busy));
+        (t.callback)(Err(Error::Busy));
         return;
     }
-    println!(
-        "async_execute_step, priority = {:?}, step = {}",
-        priority,
-        step
-    );
-    let t = task::Task {
-        callback,
-        step,
-        priority,
-    };
     match scheduler.schedule(t) {
-        Err(ScheduleError::Full(t)) => (t.callback)(Err(task::Error::Busy)),
+        Err(ScheduleError::Full(t)) => (t.callback)(Err(Error::Busy)),
         Err(ScheduleError::Stopped(_)) => panic!("worker scheduler is stopped"), // should we panic?
         Ok(_) => (),
     }
+}
+
+#[inline]
+fn async_execute_step(
+    runner_env: &RunnerEnvironment,
+    scheduler: &Scheduler<task::Task>,
+    step: Box<Step>,
+    priority: Priority,
+    callback: Callback,
+) {
+    let t = task::Task {
+        callback,
+        step: Some(step),
+        priority,
+    };
+    async_execute_task(runner_env, scheduler, t);
 }
 
 struct Runner {
@@ -168,21 +180,14 @@ impl Runnable<task::Task> for Runner {
         let pool = env_instance.get_pool_by_priority(t.priority);
 
         pool.execute(move |context: &mut WorkerThreadContext| {
-            let priority = t.priority;
-            let callback = t.callback;
-            let step = t.step;
+            let step = t.step.take().unwrap();
             step.async_work(context, box move |result: task::StepResult| match result {
-                task::StepResult::Continue(job) => {
-                    async_execute_step(
-                        &runner_env.lock().unwrap(),
-                        &scheduler,
-                        job,
-                        priority,
-                        callback,
-                    );
+                task::StepResult::Continue(new_step) => {
+                    t.step = Some(new_step);
+                    async_execute_task(&runner_env.lock().unwrap(), &scheduler, t);
                 }
                 task::StepResult::Finish(result) => {
-                    callback(result);
+                    (t.callback)(result);
                 }
             });
         });
@@ -195,16 +200,14 @@ pub struct GrpcRequestWorker {
 }
 
 impl GrpcRequestWorker {
-    pub fn new(
-        concurrency: usize,
-        max_read_tasks: usize,
-        stack_size: usize,
-        engine: Box<Engine>,
-    ) -> GrpcRequestWorker {
+    pub fn new(config: &Config, engine: Box<Engine>) -> GrpcRequestWorker {
         let runner_env = sync::Arc::new(sync::Mutex::new(RunnerEnvironment::new(
-            concurrency,
-            max_read_tasks,
-            stack_size,
+            config.read_critical_concurrency,
+            config.read_high_concurrency,
+            config.read_normal_concurrency,
+            config.read_low_concurrency,
+            config.max_read_tasks,
+            config.stack_size.0 as usize,
             engine,
         )));
         let worker = Worker::new("grpc-request-worker");
@@ -216,12 +219,7 @@ impl GrpcRequestWorker {
     /// The caller should ensure the matching of the step and its priority, for example, for
     /// tasks about reading, the priority should be ReadXxx and the behavior is undefined if a
     /// WriteXxx priority is specified instead.
-    pub fn async_execute(
-        &self,
-        begin_step: Box<task::Step>,
-        priority: task::Priority,
-        callback: task::Callback,
-    ) {
+    pub fn async_execute(&self, begin_step: Box<Step>, priority: Priority, callback: Callback) {
         async_execute_step(
             &self.runner_env.lock().unwrap(),
             &self.worker.scheduler(),
@@ -231,16 +229,18 @@ impl GrpcRequestWorker {
         );
     }
 
-    pub fn start(&mut self) {
+    pub fn start(&mut self) -> result::Result<(), io::Error> {
         let runner = Runner {
             runner_env: self.runner_env.clone(),
             scheduler: self.worker.scheduler(),
         };
-        self.worker.start(runner);
+        self.worker.start(runner)
     }
 
     pub fn shutdown(&mut self) {
-        self.worker.stop();
+        if let Err(e) = self.worker.stop().unwrap().join() {
+            error!("failed to stop GrpcWorker: {:?}", e);
+        }
         self.runner_env.lock().unwrap().shutdown();
     }
 }
@@ -249,44 +249,54 @@ impl GrpcRequestWorker {
 mod tests {
     use util::worker::Worker;
     use std::time::Duration;
-    use std::sync::mpsc::channel;
+    use std::sync::mpsc::{channel, Sender};
     use storage;
     use kvproto::kvrpcpb;
     use super::*;
 
+    fn expect_ok(done: Sender<i32>, id: i32) -> Callback {
+        Box::new(move |x: Result| {
+            assert!(x.is_ok());
+            done.send(id).unwrap();
+        })
+    }
+
+    fn expect_get_none(done: Sender<i32>, id: i32) -> Callback {
+        Box::new(move |x: Result| {
+            assert_eq!(x.unwrap(), task::Value::StorageValue(None));
+            done.send(id).unwrap();
+        })
+    }
+
+    fn expect_get_val(done: Sender<i32>, v: Vec<u8>, id: i32) -> Callback {
+        Box::new(move |x: Result| {
+            assert_eq!(x.unwrap(), task::Value::StorageValue(Some(v)));
+            done.send(id).unwrap();
+        })
+    }
+
     #[test]
     fn test_scheduler_run() {
-        let config = storage::Config::default();
-        let mut storage = storage::Storage::new(&config).unwrap();
+        let storage_config = storage::Config::default();
+        let mut storage = storage::Storage::new(&storage_config).unwrap();
 
         let (tx, rx) = channel();
 
-        let mut grpc_worker = GrpcRequestWorker::new(10, 10, 10000000, storage.get_engine());
-        grpc_worker.start();
-
-        let mut get_req = kvrpcpb::GetRequest::new();
-        get_req.set_context(kvrpcpb::Context::new());
-        get_req.set_key(b"x".to_vec());
-        get_req.set_version(100);
+        let worker_config = Config::default();
+        let mut grpc_worker = GrpcRequestWorker::new(&worker_config, storage.get_engine());
+        grpc_worker.start().unwrap();
 
         grpc_worker.async_execute(
-            Box::new(task::read::KvGetStep {
-                req: get_req,
-            }),
-            task::Priority::ReadCritical,
-            box move |result| {
-                match result {
-                    Err(e) => {
-                        println!("async_execute_step result: err = {:?}", e);
-                    }
-                    Ok(r) => {
-                        println!("async_execute_step result: ok = {:?}", r);
-                    }
-                }
-                tx.send(1);
+            box task::read::KvGetStep {
+                req_context: kvrpcpb::Context::new(),
+                key: b"x".to_vec(),
+                start_ts: 100,
             },
+            task::Priority::ReadCritical,
+            expect_get_none(tx.clone(), 0),
         );
-        assert_eq!(rx.recv_timeout(Duration::from_secs(3)).unwrap(), 1);
+        assert_eq!(rx.recv().unwrap(), 0);
+
         grpc_worker.shutdown();
     }
 }
