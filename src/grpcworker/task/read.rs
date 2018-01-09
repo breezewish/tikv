@@ -53,7 +53,7 @@ struct KvGetStepSecondBuilder {
 }
 
 impl SnapshotNextStepBuilder for KvGetStepSecondBuilder {
-    fn build(mut self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<Step> {
+    fn build(self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<Step> {
         box KvGetStepSecond {
             snapshot: Some(snapshot),
             builder: self,

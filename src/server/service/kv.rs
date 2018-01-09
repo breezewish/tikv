@@ -42,6 +42,7 @@ use server::metrics::*;
 use server::Error;
 use raftstore::store::Msg as StoreMessage;
 use coprocessor::{EndPointTask, RequestTask};
+use grpcworker::{self, GrpcRequestWorker};
 
 const SCHEDULER_IS_BUSY: &'static str = "scheduler is busy";
 
@@ -51,6 +52,8 @@ pub struct Service<T: RaftStoreRouter + 'static> {
     storage: Storage,
     // For handling coprocessor requests.
     end_point_scheduler: Scheduler<EndPointTask>,
+    // Pools for executing all requests,
+    grpc_worker: Arc<GrpcRequestWorker>,
     // For handling raft messages.
     ch: T,
     // For handling snapshot.
@@ -62,12 +65,14 @@ pub struct Service<T: RaftStoreRouter + 'static> {
 impl<T: RaftStoreRouter + 'static> Service<T> {
     pub fn new(
         storage: Storage,
+        grpc_worker: GrpcRequestWorker,
         end_point_scheduler: Scheduler<EndPointTask>,
         ch: T,
         snap_scheduler: Scheduler<SnapTask>,
         recursion_limit: u32,
     ) -> Service<T> {
         Service {
+            grpc_worker: Arc::new(grpc_worker),
             storage: storage,
             end_point_scheduler: end_point_scheduler,
             ch: ch,
@@ -103,29 +108,38 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             .start_coarse_timer();
 
         let (cb, future) = make_callback();
-        let res = self.storage.async_get(
-            req.take_context(),
-            Key::from_raw(req.get_key()),
-            req.get_version(),
+        self.grpc_worker.async_execute(
+            box grpcworker::task::read::KvGetStep {
+                req_context: req.take_context(),
+                key: req.take_key(),
+                start_ts: req.get_version(),
+            },
+            grpcworker::Priority::ReadCritical,
             cb,
         );
-        if let Err(e) = res {
-            self.send_fail_status(ctx, sink, Error::from(e), RpcStatusCode::ResourceExhausted);
-            return;
-        }
 
         let future = future
             .map_err(Error::from)
             .map(|v| {
                 let mut res = GetResponse::new();
-                if let Some(err) = extract_region_error(&v) {
-                    res.set_region_error(err);
-                } else {
-                    match v {
-                        Ok(Some(val)) => res.set_value(val),
-                        Ok(None) => res.set_value(vec![]),
-                        Err(e) => res.set_error(extract_key_error(&e)),
+                match v {
+                    Ok(grpcworker::Value::StorageValue(v)) => match v {
+                        Some(val) => res.set_value(val),
+                        None => res.set_value(vec![]),
+                    },
+                    Err(grpcworker::Error::StorageError(e)) => {
+                        let v = Ok(e);
+                        if let Some(err) = extract_region_error(&v) {
+                            res.set_region_error(err);
+                        } else {
+                            match v {
+                                Err(e) => res.set_error(extract_key_error(&e)),
+                                _ => unreachable!(),
+                            }
+                        }
                     }
+                    // TODO: Check scheduler full error, snapshot error?
+                    _ => unreachable!(),
                 }
                 res
             })

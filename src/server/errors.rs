@@ -28,6 +28,7 @@ use storage::Error as StorageError;
 use pd::Error as PdError;
 use super::snap::Task as SnapTask;
 use coprocessor::EndPointTask;
+use grpcworker::Error as GrpcWorkerError;
 
 quick_error!{
     #[derive(Debug)]
@@ -111,6 +112,5 @@ quick_error!{
         }
     }
 }
-
 
 pub type Result<T> = result::Result<T, Error>;

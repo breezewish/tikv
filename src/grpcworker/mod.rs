@@ -12,15 +12,14 @@
 // limitations under the License.
 
 pub mod task;
-pub mod config;
 
 use std::{io, result, sync};
 
 use util::threadpool::{self, ThreadPool, ThreadPoolBuilder};
 use util::worker::{Runnable, ScheduleError, Scheduler, Worker};
 use storage::Engine;
+use server::Config;
 
-pub use self::config::Config;
 pub use self::task::{Callback, Error, Priority, Result, Step, Value};
 
 struct RunnerEnvironment {
@@ -196,21 +195,21 @@ impl Runnable<task::Task> for Runner {
 
 pub struct GrpcRequestWorker {
     runner_env: sync::Arc<sync::Mutex<RunnerEnvironment>>,
-    worker: Worker<task::Task>,
+    worker: sync::Mutex<Worker<task::Task>>,
 }
 
 impl GrpcRequestWorker {
     pub fn new(config: &Config, engine: Box<Engine>) -> GrpcRequestWorker {
         let runner_env = sync::Arc::new(sync::Mutex::new(RunnerEnvironment::new(
-            config.read_critical_concurrency,
-            config.read_high_concurrency,
-            config.read_normal_concurrency,
-            config.read_low_concurrency,
-            config.max_read_tasks,
-            config.stack_size.0 as usize,
+            config.grpc_worker_read_critical_concurrency,
+            config.grpc_worker_read_high_concurrency,
+            config.grpc_worker_read_normal_concurrency,
+            config.grpc_worker_read_low_concurrency,
+            config.grpc_worker_max_read_tasks,
+            config.grpc_worker_stack_size.0 as usize,
             engine,
         )));
-        let worker = Worker::new("grpc-request-worker");
+        let worker = sync::Mutex::new(Worker::new("grpc-request-worker"));
         GrpcRequestWorker { runner_env, worker }
     }
 
@@ -220,9 +219,10 @@ impl GrpcRequestWorker {
     /// tasks about reading, the priority should be ReadXxx and the behavior is undefined if a
     /// WriteXxx priority is specified instead.
     pub fn async_execute(&self, begin_step: Box<Step>, priority: Priority, callback: Callback) {
+        let worker = self.worker.lock().unwrap();
         async_execute_step(
             &self.runner_env.lock().unwrap(),
-            &self.worker.scheduler(),
+            &worker.scheduler(),
             begin_step,
             priority,
             callback,
@@ -230,15 +230,17 @@ impl GrpcRequestWorker {
     }
 
     pub fn start(&mut self) -> result::Result<(), io::Error> {
+        let mut worker = self.worker.lock().unwrap();
         let runner = Runner {
             runner_env: self.runner_env.clone(),
-            scheduler: self.worker.scheduler(),
+            scheduler: worker.scheduler(),
         };
-        self.worker.start(runner)
+        worker.start(runner)
     }
 
     pub fn shutdown(&mut self) {
-        if let Err(e) = self.worker.stop().unwrap().join() {
+        let mut worker = self.worker.lock().unwrap();
+        if let Err(e) = worker.stop().unwrap().join() {
             error!("failed to stop GrpcWorker: {:?}", e);
         }
         self.runner_env.lock().unwrap().shutdown();
@@ -248,7 +250,6 @@ impl GrpcRequestWorker {
 #[cfg(test)]
 mod tests {
     use util::worker::Worker;
-    use std::time::Duration;
     use std::sync::mpsc::{channel, Sender};
     use storage;
     use kvproto::kvrpcpb;

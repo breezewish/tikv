@@ -16,6 +16,12 @@ end-point-stack-size = "12MB"
 end-point-recursion-limit = 100
 end-point-batch-row-limit = 64
 snap-max-write-bytes-per-sec = "10MB"
+grpc-worker-read-critical-concurrency = 2
+grpc-worker-read-high-concurrency = 2
+grpc-worker-read-normal-concurrency = 2
+grpc-worker-read-low-concurrency = 2
+grpc-worker-max-read-tasks = 10240
+grpc-worker-stack-size = "10MB"
 
 [server.labels]
 a = "b"

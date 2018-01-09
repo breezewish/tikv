@@ -13,12 +13,12 @@
 
 use storage;
 use kvproto::kvrpcpb;
-use std::fmt;
+use std::{fmt, sync};
 
 use super::{Error, Step, StepCallback, StepResult, Value, WorkerThreadContext};
 
 pub trait SnapshotNextStepBuilder: Send {
-    fn build(mut self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<Step>;
+    fn build(self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<Step>;
 }
 
 pub trait SnapshotStep: Send + fmt::Display {
@@ -28,21 +28,35 @@ pub trait SnapshotStep: Send + fmt::Display {
 
 impl<R: SnapshotStep> Step for R {
     #[inline]
-    fn async_work(mut self: Box<Self>, context: &mut WorkerThreadContext, on_done: StepCallback) {
+    fn async_work(self: Box<Self>, context: &mut WorkerThreadContext, on_done: StepCallback) {
+        let on_done = sync::Arc::new(sync::Mutex::new(Some(on_done)));
+        let on_done_for_result = on_done.clone();
+        let on_done_for_callback = on_done.clone();
         let next_step_builder = self.create_next_step_builder();
-        context.engine.async_snapshot(
+        let result = context.engine.async_snapshot(
             self.get_request_context(),
-            box move |(_, snapshot_result)| match snapshot_result {
-                Ok(snapshot) => {
-                    let next_step = next_step_builder.build(snapshot);
-                    on_done(StepResult::Continue(Box::from(next_step)));
-                }
-                Err(e) => {
-                    on_done(StepResult::Finish(
-                        Err(Error::StorageError(storage::Error::from(e))),
-                    ));
+            box move |(_, snapshot_result)| {
+                let mut on_done = on_done_for_callback.lock().unwrap();
+                let on_done = on_done.take().unwrap();
+                match snapshot_result {
+                    Ok(snapshot) => {
+                        let next_step = next_step_builder.build(snapshot);
+                        on_done(StepResult::Continue(Box::from(next_step)));
+                    }
+                    Err(e) => {
+                        on_done(StepResult::Finish(
+                            Err(Error::StorageError(storage::Error::from(e))),
+                        ));
+                    }
                 }
             },
         );
+        if let Err(e) = result {
+            let mut on_done = on_done_for_result.lock().unwrap();
+            let on_done = on_done.take().unwrap();
+            on_done(StepResult::Finish(
+                Err(Error::StorageError(storage::Error::from(e))),
+            ));
+        }
     }
 }
