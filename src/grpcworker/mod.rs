@@ -193,7 +193,14 @@ impl Runnable<task::Task> for Runner {
 
 pub struct GrpcRequestWorker {
     runner_env: sync::Arc<sync::RwLock<RunnerEnvironment>>,
+
+    // `worker` is protected via a mutex to prevent concurrent mutable access
+    // (i.e. `worker.start()` & `worker.stop()`)
     worker: sync::Arc<sync::Mutex<Worker<task::Task>>>,
+
+    // `scheduler` is extracted from the `worker` so that we don't need to lock the worker
+    // (to get the `scheduler`) when pushing items into the queue.
+    scheduler: Scheduler<task::Task>,
 }
 
 impl GrpcRequestWorker {
@@ -207,8 +214,13 @@ impl GrpcRequestWorker {
             config.grpc_worker_stack_size.0 as usize,
             engine,
         )));
-        let worker = sync::Arc::new(sync::Mutex::new(Worker::new("grpc-request-worker")));
-        GrpcRequestWorker { runner_env, worker }
+        let worker = Worker::new("grpc-request-worker");
+        let scheduler = worker.scheduler();
+        GrpcRequestWorker {
+            runner_env,
+            worker: sync::Arc::new(sync::Mutex::new(worker)),
+            scheduler,
+        }
     }
 
     /// Execute a task on the specified thread pool and get the result when it is finished.
@@ -217,10 +229,9 @@ impl GrpcRequestWorker {
     /// tasks about reading, the priority should be ReadXxx and the behavior is undefined if a
     /// WriteXxx priority is specified instead.
     pub fn async_execute(&self, begin_step: Box<Step>, priority: Priority, callback: Callback) {
-        let worker = self.worker.lock().unwrap();
         async_execute_step(
             &self.runner_env.read().unwrap(),
-            &worker.scheduler(),
+            &self.scheduler,
             begin_step,
             priority,
             callback,
@@ -231,7 +242,7 @@ impl GrpcRequestWorker {
         let mut worker = self.worker.lock().unwrap();
         let runner = Runner {
             runner_env: self.runner_env.clone(),
-            scheduler: worker.scheduler(),
+            scheduler: self.scheduler.clone(),
         };
         worker.start(runner)
     }
@@ -250,6 +261,7 @@ impl Clone for GrpcRequestWorker {
         GrpcRequestWorker {
             runner_env: self.runner_env.clone(),
             worker: self.worker.clone(),
+            scheduler: self.scheduler.clone(),
         }
     }
 }
