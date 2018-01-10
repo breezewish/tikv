@@ -53,6 +53,8 @@ pub struct Server<T: RaftStoreRouter + 'static, S: StoreAddrResolver + 'static> 
     snap_mgr: SnapManager,
     snap_worker: Worker<SnapTask>,
     pd_scheduler: FutureScheduler<PdTask>,
+
+    grpc_worker: GrpcRequestWorker,
 }
 
 impl<T: RaftStoreRouter, S: StoreAddrResolver + 'static> Server<T, S> {
@@ -88,7 +90,7 @@ impl<T: RaftStoreRouter, S: StoreAddrResolver + 'static> Server<T, S> {
 
         let kv_service = KvService::new(
             storage.clone(),
-            grpc_worker,
+            grpc_worker.clone(),
             end_point_worker.scheduler(),
             raft_router.clone(),
             snap_worker.scheduler(),
@@ -137,6 +139,7 @@ impl<T: RaftStoreRouter, S: StoreAddrResolver + 'static> Server<T, S> {
             snap_mgr: snap_mgr,
             snap_worker: snap_worker,
             pd_scheduler: pd_scheduler,
+            grpc_worker: grpc_worker.clone(),
         };
 
         Ok(svr)
@@ -161,6 +164,7 @@ impl<T: RaftStoreRouter, S: StoreAddrResolver + 'static> Server<T, S> {
             security_mgr,
         );
         box_try!(self.snap_worker.start(snap_runner));
+        box_try!(self.grpc_worker.start());
         self.grpc_server.start();
         info!("TiKV is ready to serve");
         Ok(())

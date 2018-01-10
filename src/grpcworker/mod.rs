@@ -163,19 +163,17 @@ fn async_execute_step(
 }
 
 struct Runner {
-    // need mutex here because shutdown is mutable
-    runner_env: sync::Arc<sync::Mutex<RunnerEnvironment>>,
+    // need locks here because shutdown is mutable
+    runner_env: sync::Arc<sync::RwLock<RunnerEnvironment>>,
     scheduler: Scheduler<task::Task>,
 }
 
 impl Runnable<task::Task> for Runner {
     fn run(&mut self, mut t: task::Task) {
-        println!("GrpcRequestRunner::run");
-
         let scheduler = self.scheduler.clone();
         let runner_env = self.runner_env.clone();
 
-        let env_instance = self.runner_env.lock().unwrap();
+        let env_instance = self.runner_env.read().unwrap();
         let pool = env_instance.get_pool_by_priority(t.priority);
 
         pool.execute(move |context: &mut WorkerThreadContext| {
@@ -183,7 +181,7 @@ impl Runnable<task::Task> for Runner {
             step.async_work(context, box move |result: task::StepResult| match result {
                 task::StepResult::Continue(new_step) => {
                     t.step = Some(new_step);
-                    async_execute_task(&runner_env.lock().unwrap(), &scheduler, t);
+                    async_execute_task(&runner_env.read().unwrap(), &scheduler, t);
                 }
                 task::StepResult::Finish(result) => {
                     (t.callback)(result);
@@ -194,13 +192,13 @@ impl Runnable<task::Task> for Runner {
 }
 
 pub struct GrpcRequestWorker {
-    runner_env: sync::Arc<sync::Mutex<RunnerEnvironment>>,
-    worker: sync::Mutex<Worker<task::Task>>,
+    runner_env: sync::Arc<sync::RwLock<RunnerEnvironment>>,
+    worker: sync::Arc<sync::Mutex<Worker<task::Task>>>,
 }
 
 impl GrpcRequestWorker {
     pub fn new(config: &Config, engine: Box<Engine>) -> GrpcRequestWorker {
-        let runner_env = sync::Arc::new(sync::Mutex::new(RunnerEnvironment::new(
+        let runner_env = sync::Arc::new(sync::RwLock::new(RunnerEnvironment::new(
             config.grpc_worker_read_critical_concurrency,
             config.grpc_worker_read_high_concurrency,
             config.grpc_worker_read_normal_concurrency,
@@ -209,7 +207,7 @@ impl GrpcRequestWorker {
             config.grpc_worker_stack_size.0 as usize,
             engine,
         )));
-        let worker = sync::Mutex::new(Worker::new("grpc-request-worker"));
+        let worker = sync::Arc::new(sync::Mutex::new(Worker::new("grpc-request-worker")));
         GrpcRequestWorker { runner_env, worker }
     }
 
@@ -221,7 +219,7 @@ impl GrpcRequestWorker {
     pub fn async_execute(&self, begin_step: Box<Step>, priority: Priority, callback: Callback) {
         let worker = self.worker.lock().unwrap();
         async_execute_step(
-            &self.runner_env.lock().unwrap(),
+            &self.runner_env.read().unwrap(),
             &worker.scheduler(),
             begin_step,
             priority,
@@ -243,7 +241,16 @@ impl GrpcRequestWorker {
         if let Err(e) = worker.stop().unwrap().join() {
             error!("failed to stop GrpcWorker: {:?}", e);
         }
-        self.runner_env.lock().unwrap().shutdown();
+        self.runner_env.write().unwrap().shutdown();
+    }
+}
+
+impl Clone for GrpcRequestWorker {
+    fn clone(&self) -> GrpcRequestWorker {
+        GrpcRequestWorker {
+            runner_env: self.runner_env.clone(),
+            worker: self.worker.clone(),
+        }
     }
 }
 
@@ -264,6 +271,7 @@ mod tests {
 
     fn expect_get_none(done: Sender<i32>, id: i32) -> Callback {
         Box::new(move |x: Result| {
+            assert!(x.is_ok());
             assert_eq!(x.unwrap(), task::Value::StorageValue(None));
             done.send(id).unwrap();
         })
@@ -271,6 +279,7 @@ mod tests {
 
     fn expect_get_val(done: Sender<i32>, v: Vec<u8>, id: i32) -> Callback {
         Box::new(move |x: Result| {
+            assert!(x.is_ok());
             assert_eq!(x.unwrap(), task::Value::StorageValue(Some(v)));
             done.send(id).unwrap();
         })

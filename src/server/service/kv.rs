@@ -53,7 +53,7 @@ pub struct Service<T: RaftStoreRouter + 'static> {
     // For handling coprocessor requests.
     end_point_scheduler: Scheduler<EndPointTask>,
     // Pools for executing all requests,
-    grpc_worker: Arc<GrpcRequestWorker>,
+    grpc_worker: GrpcRequestWorker,
     // For handling raft messages.
     ch: T,
     // For handling snapshot.
@@ -72,7 +72,7 @@ impl<T: RaftStoreRouter + 'static> Service<T> {
         recursion_limit: u32,
     ) -> Service<T> {
         Service {
-            grpc_worker: Arc::new(grpc_worker),
+            grpc_worker,
             storage: storage,
             end_point_scheduler: end_point_scheduler,
             ch: ch,

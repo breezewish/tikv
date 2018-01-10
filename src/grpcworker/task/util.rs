@@ -29,6 +29,8 @@ pub trait SnapshotStep: Send + fmt::Display {
 impl<R: SnapshotStep> Step for R {
     #[inline]
     fn async_work(self: Box<Self>, context: &mut WorkerThreadContext, on_done: StepCallback) {
+        // TODO: replace sync::Arc::new(sync::Mutex::new(..)) with a flagged sync / send struct
+        // to improve performance.
         let on_done = sync::Arc::new(sync::Mutex::new(Some(on_done)));
         let on_done_for_result = on_done.clone();
         let on_done_for_callback = on_done.clone();
