@@ -177,6 +177,7 @@ impl<T: RaftStoreRouter, S: StoreAddrResolver + 'static> Server<T, S> {
             error!("failed to stop store: {:?}", e);
         }
         self.grpc_server.shutdown();
+        self.grpc_worker.shutdown();
         Ok(())
     }
 
