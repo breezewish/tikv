@@ -84,7 +84,7 @@ impl Step for KvGetStepSecond {
         let res = snap_store.get(&self.builder.key, &mut statistics);
         on_done(StepResult::Finish(match res {
             Ok(val) => Ok(Value::StorageValue(val)),
-            Err(e) => Err(Error::StorageError(storage::Error::from(e))),
+            Err(e) => Err(Error::Storage(storage::Error::from(e))),
         }));
     }
 }

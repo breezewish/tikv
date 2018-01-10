@@ -11,7 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod task;
+mod task;
+mod errors;
 
 use std::{io, result, sync};
 
@@ -20,7 +21,9 @@ use util::worker::{Runnable, ScheduleError, Scheduler, Worker};
 use storage::Engine;
 use server::Config;
 
-pub use self::task::{Callback, Error, Priority, Result, Step, Value};
+pub use self::errors::Error;
+pub use self::task::{Callback, Priority, Result, Step, Task, Value};
+pub use self::task::read::*;
 
 struct RunnerEnvironment {
     pool_read_critical: ThreadPool<WorkerThreadContext>,
@@ -130,18 +133,21 @@ impl RunnerEnvironment {
 }
 
 #[inline]
-fn async_execute_task(
-    runner_env: &RunnerEnvironment,
-    scheduler: &Scheduler<task::Task>,
-    t: task::Task,
-) {
+fn async_execute_task(runner_env: &RunnerEnvironment, scheduler: &Scheduler<Task>, t: Task) {
     if runner_env.is_read_busy() {
-        (t.callback)(Err(Error::Busy));
+        let task_detail = format!("{}", t);
+        (t.callback)(Err(Error::PoolBusy(task_detail)));
         return;
     }
     match scheduler.schedule(t) {
-        Err(ScheduleError::Full(t)) => (t.callback)(Err(Error::Busy)),
-        Err(ScheduleError::Stopped(_)) => panic!("worker scheduler is stopped"), // should we panic?
+        Err(ScheduleError::Full(t)) => {
+            let task_detail = format!("{}", t);
+            (t.callback)(Err(Error::SchedulerBusy(task_detail)));
+        }
+        Err(ScheduleError::Stopped(t)) => {
+            let task_detail = format!("{}", t);
+            (t.callback)(Err(Error::SchedulerStopped(task_detail)));
+        }
         Ok(_) => (),
     }
 }
@@ -149,12 +155,12 @@ fn async_execute_task(
 #[inline]
 fn async_execute_step(
     runner_env: &RunnerEnvironment,
-    scheduler: &Scheduler<task::Task>,
+    scheduler: &Scheduler<Task>,
     step: Box<Step>,
     priority: Priority,
     callback: Callback,
 ) {
-    let t = task::Task {
+    let t = Task {
         callback,
         step: Some(step),
         priority,
@@ -165,11 +171,11 @@ fn async_execute_step(
 struct Runner {
     // need locks here because shutdown is mutable
     runner_env: sync::Arc<sync::RwLock<RunnerEnvironment>>,
-    scheduler: Scheduler<task::Task>,
+    scheduler: Scheduler<Task>,
 }
 
-impl Runnable<task::Task> for Runner {
-    fn run(&mut self, mut t: task::Task) {
+impl Runnable<Task> for Runner {
+    fn run(&mut self, mut t: Task) {
         let scheduler = self.scheduler.clone();
         let runner_env = self.runner_env.clone();
 
@@ -196,11 +202,11 @@ pub struct GrpcRequestWorker {
 
     // `worker` is protected via a mutex to prevent concurrent mutable access
     // (i.e. `worker.start()` & `worker.stop()`)
-    worker: sync::Arc<sync::Mutex<Worker<task::Task>>>,
+    worker: sync::Arc<sync::Mutex<Worker<Task>>>,
 
     // `scheduler` is extracted from the `worker` so that we don't need to lock the worker
     // (to get the `scheduler`) when pushing items into the queue.
-    scheduler: Scheduler<task::Task>,
+    scheduler: Scheduler<Task>,
 }
 
 impl GrpcRequestWorker {
@@ -285,7 +291,7 @@ mod tests {
     fn expect_get_none(done: Sender<i32>, id: i32) -> Callback {
         Box::new(move |x: Result| {
             assert!(x.is_ok());
-            assert_eq!(x.unwrap(), task::Value::StorageValue(None));
+            assert_eq!(x.unwrap(), Value::StorageValue(None));
             done.send(id).unwrap();
         })
     }
@@ -293,7 +299,7 @@ mod tests {
     fn expect_get_val(done: Sender<i32>, v: Vec<u8>, id: i32) -> Callback {
         Box::new(move |x: Result| {
             assert!(x.is_ok());
-            assert_eq!(x.unwrap(), task::Value::StorageValue(Some(v)));
+            assert_eq!(x.unwrap(), Value::StorageValue(Some(v)));
             done.send(id).unwrap();
         })
     }
@@ -310,12 +316,12 @@ mod tests {
         grpc_worker.start().unwrap();
 
         grpc_worker.async_execute(
-            box task::read::KvGetStep {
+            box KvGetStep {
                 req_context: kvrpcpb::Context::new(),
                 key: b"x".to_vec(),
                 start_ts: 100,
             },
-            task::Priority::ReadCritical,
+            Priority::ReadCritical,
             expect_get_none(tx.clone(), 0),
         );
         assert_eq!(rx.recv().unwrap(), 0);

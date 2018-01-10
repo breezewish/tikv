@@ -47,7 +47,7 @@ impl<R: SnapshotStep> Step for R {
                     }
                     Err(e) => {
                         on_done(StepResult::Finish(
-                            Err(Error::StorageError(storage::Error::from(e))),
+                            Err(Error::Storage(storage::Error::from(e))),
                         ));
                     }
                 }
@@ -57,7 +57,7 @@ impl<R: SnapshotStep> Step for R {
             let mut on_done = on_done_for_result.lock().unwrap();
             let on_done = on_done.take().unwrap();
             on_done(StepResult::Finish(
-                Err(Error::StorageError(storage::Error::from(e))),
+                Err(Error::Storage(storage::Error::from(e))),
             ));
         }
     }

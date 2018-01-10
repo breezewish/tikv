@@ -17,7 +17,7 @@ mod util;
 use std::{boxed, fmt, result};
 use storage;
 
-pub use super::WorkerThreadContext;
+pub use super::{Error, WorkerThreadContext};
 
 #[derive(Debug, Copy, Clone)]
 pub enum Priority {
@@ -40,23 +40,6 @@ impl fmt::Display for Value {
             Value::Foo => write!(f, "Foo"),
             Value::Bar => write!(f, "Bar"),
             Value::StorageValue(_) => write!(f, "StorageValue"),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum Error {
-    Busy,
-    Canceled,
-    StorageError(storage::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Busy => write!(f, "Busy"),
-            Error::Canceled => write!(f, "Canceled"),
-            Error::StorageError(_) => write!(f, "StorageError"),
         }
     }
 }

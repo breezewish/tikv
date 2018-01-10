@@ -110,6 +110,12 @@ quick_error!{
             display("{:?}", err)
             description(err.description())
         }
+        GrpcWorkerBusy(err: GrpcWorkerError) {
+            // no from() since grpcworker::Error may contain other kind of errors
+            cause(err)
+            display("{:?}", err)
+            description(err.description())
+        }
     }
 }
 

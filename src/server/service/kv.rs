@@ -109,7 +109,7 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
 
         let (cb, future) = make_callback();
         self.grpc_worker.async_execute(
-            box grpcworker::task::read::KvGetStep {
+            box grpcworker::KvGetStep {
                 req_context: req.take_context(),
                 key: req.take_key(),
                 start_ts: req.get_version(),
@@ -119,23 +119,42 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
         );
 
         let future = future
+            // only catch futures::sync::oneshot::Canceled, map into server::Error
             .map_err(Error::from)
+            .and_then(|v| {
+                match v {
+                    Err(e @ grpcworker::Error::SchedulerBusy(..))
+                    | Err(e @ grpcworker::Error::SchedulerStopped(..))
+                    | Err(e @ grpcworker::Error::PoolBusy(..)) => {
+                        Err(Error::GrpcWorkerBusy(e))
+                    }
+                    v @ Err(_) | v @ Ok(_) => {
+                        Ok(v)
+                    }
+                }
+            })
+            .map_err(|err: Error| {
+                RpcStatus::new(
+                    RpcStatusCode::ResourceExhausted,
+                    Some(format!("{}", err))
+                )
+            })
             .map(|v| {
                 let mut res = GetResponse::new();
-                match &v {
-                    &Ok(ref v) => {
-                        info!("[!!!] future map v = ok {:?}", v);
-                    }
-                    &Err(ref v) => {
-                        info!("[!!!] future map v = err {:?}", v);
-                    }
-                };
+//                match &v {
+//                    &Ok(ref v) => {
+//                        info!("[!!!] future map v = ok {:?}", v);
+//                    }
+//                    &Err(ref v) => {
+//                        info!("[!!!] future map v = err {:?}", v);
+//                    }
+//                };
                 match v {
                     Ok(grpcworker::Value::StorageValue(v)) => match v {
                         Some(val) => res.set_value(val),
                         None => res.set_value(vec![]),
-                    },
-                    Err(grpcworker::Error::StorageError(e)) => {
+                    }
+                    Err(grpcworker::Error::Storage(e)) => {
                         let v = Ok(e);
                         if let Some(err) = extract_region_error(&v) {
                             res.set_region_error(err);
@@ -146,12 +165,16 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
                             }
                         }
                     }
-                    // TODO: Check scheduler full error, snapshot error?
                     _ => unreachable!(),
                 }
                 res
             })
-            .and_then(|res| sink.success(res).map_err(Error::from))
+            .then(|result: Result<GetResponse, RpcStatus>| {
+                (match result {
+                    Ok(res) => sink.success(res),
+                    Err(res) => sink.fail(res),
+                }).map_err(Error::from)
+            })
             .map(|_| timer.observe_duration())
             .map_err(move |e| {
                 debug!("{} failed: {:?}", label, e);
