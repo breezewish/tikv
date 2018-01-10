@@ -73,7 +73,7 @@ impl fmt::Display for KvGetStepSecond {
 }
 
 impl Step for KvGetStepSecond {
-    fn async_work(mut self: Box<Self>, context: &mut WorkerThreadContext, on_done: StepCallback) {
+    fn async_work(mut self: Box<Self>, _context: &mut WorkerThreadContext, on_done: StepCallback) {
         let mut statistics = storage::Statistics::default();
         let snap_store = storage::SnapshotStore::new(
             self.snapshot.take().unwrap(),

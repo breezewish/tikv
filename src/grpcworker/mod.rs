@@ -248,6 +248,7 @@ impl GrpcRequestWorker {
     }
 
     pub fn shutdown(&mut self) {
+        // TODO: shutdown runner_env inside worker to eliminate locks in async_execute.
         let mut worker = self.worker.lock().unwrap();
         if let Err(e) = worker.stop().unwrap().join() {
             error!("failed to stop GrpcWorker: {:?}", e);
