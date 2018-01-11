@@ -113,15 +113,8 @@ impl RunnerEnvironment {
         }
     }
 
-    /// Check whether tasks in any read pool exceeds the limit.
-    fn is_read_busy(&self) -> bool {
-        self.pool_read_critical.get_task_count() >= self.max_read_tasks ||
-            self.pool_read_high.get_task_count() >= self.max_read_tasks ||
-            self.pool_read_normal.get_task_count() >= self.max_read_tasks ||
-            self.pool_read_low.get_task_count() >= self.max_read_tasks
-    }
-
-    /// Get a mutable reference for the thread pool by the specified priority flag.
+    /// Get a reference for the thread pool by the specified priority flag.
+    #[inline]
     fn get_pool_by_priority(&self, priority: Priority) -> &ThreadPool<WorkerThreadContext> {
         match priority {
             Priority::ReadCritical => &self.pool_read_critical,
@@ -130,15 +123,16 @@ impl RunnerEnvironment {
             Priority::ReadLow => &self.pool_read_low,
         }
     }
+
+    /// Check whether tasks in the pool exceeds the limit.
+    #[inline]
+    fn is_pool_busy(&self, pool: &ThreadPool<WorkerThreadContext>) -> bool {
+        pool.get_task_count() >= self.max_read_tasks
+    }
 }
 
 #[inline]
-fn async_execute_task(runner_env: &RunnerEnvironment, scheduler: &Scheduler<Task>, t: Task) {
-    if runner_env.is_read_busy() {
-        let task_detail = format!("{}", t);
-        (t.callback)(Err(Error::PoolBusy(task_detail)));
-        return;
-    }
+fn schedule_task(scheduler: &Scheduler<Task>, t: Task) {
     match scheduler.schedule(t) {
         Err(ScheduleError::Full(t)) => {
             let task_detail = format!("{}", t);
@@ -152,42 +146,27 @@ fn async_execute_task(runner_env: &RunnerEnvironment, scheduler: &Scheduler<Task
     }
 }
 
-#[inline]
-fn async_execute_step(
-    runner_env: &RunnerEnvironment,
-    scheduler: &Scheduler<Task>,
-    step: Box<Step>,
-    priority: Priority,
-    callback: Callback,
-) {
-    let t = Task {
-        callback,
-        step: Some(step),
-        priority,
-    };
-    async_execute_task(runner_env, scheduler, t);
-}
-
 struct Runner {
-    // need locks here because shutdown is mutable
-    runner_env: sync::Arc<sync::RwLock<RunnerEnvironment>>,
+    runner_env: RunnerEnvironment,
     scheduler: Scheduler<Task>,
 }
 
 impl Runnable<Task> for Runner {
     fn run(&mut self, mut t: Task) {
         let scheduler = self.scheduler.clone();
-        let runner_env = self.runner_env.clone();
-
-        let env_instance = self.runner_env.read().unwrap();
-        let pool = env_instance.get_pool_by_priority(t.priority);
+        let pool = self.runner_env.get_pool_by_priority(t.priority);
+        if self.runner_env.is_pool_busy(pool) {
+            let task_detail = format!("{}", t);
+            (t.callback)(Err(Error::PoolBusy(task_detail)));
+            return;
+        }
 
         pool.execute(move |context: &mut WorkerThreadContext| {
             let step = t.step.take().unwrap();
             step.async_work(context, box move |result: task::StepResult| match result {
                 task::StepResult::Continue(new_step) => {
                     t.step = Some(new_step);
-                    async_execute_task(&runner_env.read().unwrap(), &scheduler, t);
+                    schedule_task(&scheduler, t);
                 }
                 task::StepResult::Finish(result) => {
                     (t.callback)(result);
@@ -195,35 +174,42 @@ impl Runnable<Task> for Runner {
             });
         });
     }
+
+    fn shutdown(&mut self) {
+        self.runner_env.shutdown();
+    }
 }
 
 pub struct GrpcRequestWorker {
-    runner_env: sync::Arc<sync::RwLock<RunnerEnvironment>>,
+    read_critical_concurrency: usize,
+    read_high_concurrency: usize,
+    read_normal_concurrency: usize,
+    read_low_concurrency: usize,
+    max_read_tasks: usize,
+    stack_size: usize,
+    engine: Box<Engine>,
 
-    // `worker` is protected via a mutex to prevent concurrent mutable access
-    // (i.e. `worker.start()` & `worker.stop()`)
+    /// `worker` is protected via a mutex to prevent concurrent mutable access
+    /// (i.e. `worker.start()` & `worker.stop()`)
     worker: sync::Arc<sync::Mutex<Worker<Task>>>,
 
-    // `scheduler` is extracted from the `worker` so that we don't need to lock the worker
-    // (to get the `scheduler`) when pushing items into the queue.
+    /// `scheduler` is extracted from the `worker` so that we don't need to lock the worker
+    /// (to get the `scheduler`) when pushing items into the queue.
     scheduler: Scheduler<Task>,
 }
 
 impl GrpcRequestWorker {
     pub fn new(config: &Config, engine: Box<Engine>) -> GrpcRequestWorker {
-        let runner_env = sync::Arc::new(sync::RwLock::new(RunnerEnvironment::new(
-            config.grpc_worker_read_critical_concurrency,
-            config.grpc_worker_read_high_concurrency,
-            config.grpc_worker_read_normal_concurrency,
-            config.grpc_worker_read_low_concurrency,
-            config.grpc_worker_max_read_tasks,
-            config.grpc_worker_stack_size.0 as usize,
-            engine,
-        )));
         let worker = Worker::new("grpc-request-worker");
         let scheduler = worker.scheduler();
         GrpcRequestWorker {
-            runner_env,
+            read_critical_concurrency: config.grpc_worker_read_critical_concurrency,
+            read_high_concurrency: config.grpc_worker_read_high_concurrency,
+            read_normal_concurrency: config.grpc_worker_read_normal_concurrency,
+            read_low_concurrency: config.grpc_worker_read_low_concurrency,
+            max_read_tasks: config.grpc_worker_max_read_tasks,
+            stack_size: config.grpc_worker_stack_size.0 as usize,
+            engine,
             worker: sync::Arc::new(sync::Mutex::new(worker)),
             scheduler,
         }
@@ -235,38 +221,50 @@ impl GrpcRequestWorker {
     /// tasks about reading, the priority should be ReadXxx and the behavior is undefined if a
     /// WriteXxx priority is specified instead.
     pub fn async_execute(&self, begin_step: Box<Step>, priority: Priority, callback: Callback) {
-        async_execute_step(
-            &self.runner_env.read().unwrap(),
-            &self.scheduler,
-            begin_step,
-            priority,
+        let t = Task {
             callback,
-        );
+            step: Some(begin_step),
+            priority,
+        };
+        schedule_task(&self.scheduler, t);
     }
 
     pub fn start(&mut self) -> result::Result<(), io::Error> {
+        let runner_env = RunnerEnvironment::new(
+            self.read_critical_concurrency,
+            self.read_high_concurrency,
+            self.read_normal_concurrency,
+            self.read_low_concurrency,
+            self.max_read_tasks,
+            self.stack_size,
+            self.engine.clone(),
+        );
         let mut worker = self.worker.lock().unwrap();
         let runner = Runner {
-            runner_env: self.runner_env.clone(),
+            runner_env,
             scheduler: self.scheduler.clone(),
         };
         worker.start(runner)
     }
 
     pub fn shutdown(&mut self) {
-        // TODO: shutdown runner_env inside worker to eliminate locks in async_execute.
         let mut worker = self.worker.lock().unwrap();
         if let Err(e) = worker.stop().unwrap().join() {
             error!("failed to stop GrpcWorker: {:?}", e);
         }
-        self.runner_env.write().unwrap().shutdown();
     }
 }
 
 impl Clone for GrpcRequestWorker {
     fn clone(&self) -> GrpcRequestWorker {
         GrpcRequestWorker {
-            runner_env: self.runner_env.clone(),
+            read_critical_concurrency: self.read_critical_concurrency,
+            read_high_concurrency: self.read_high_concurrency,
+            read_normal_concurrency: self.read_normal_concurrency,
+            read_low_concurrency: self.read_low_concurrency,
+            max_read_tasks: self.max_read_tasks,
+            stack_size: self.stack_size,
+            engine: self.engine.clone(),
             worker: self.worker.clone(),
             scheduler: self.scheduler.clone(),
         }
