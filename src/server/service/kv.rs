@@ -155,18 +155,15 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
                         None => res.set_value(vec![]),
                     }
                     Err(grpcworker::Error::Storage(e)) => {
-                        let v = Ok(e);
-                        if let Some(err) = extract_region_error(&v) {
+                        if let Some(err) = extract_region_error_from_err(&e) {
                             res.set_region_error(err);
                         } else {
-                            match v {
-                                Err(e) => res.set_error(extract_key_error(&e)),
-                                _ => unreachable!(),
-                            }
+                            res.set_error(extract_key_error(&e));
                         }
                     }
                     _ => unreachable!(),
                 }
+                // TODO: Add unit test to test above condition statements
                 res
             })
             .then(|result: Result<GetResponse, RpcStatus>| {
@@ -1041,22 +1038,27 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
     }
 }
 
-fn extract_region_error<T>(res: &storage::Result<T>) -> Option<RegionError> {
-    use storage::Error;
-    match *res {
-        // TODO: use `Error::cause` instead.
-        Err(Error::Engine(EngineError::Request(ref e))) |
-        Err(Error::Txn(TxnError::Engine(EngineError::Request(ref e)))) |
-        Err(Error::Txn(TxnError::Mvcc(MvccError::Engine(EngineError::Request(ref e))))) => {
+fn extract_region_error_from_err(err: &storage::Error) -> Option<RegionError> {
+    match *err {
+        storage::Error::Engine(EngineError::Request(ref e)) |
+        storage::Error::Txn(TxnError::Engine(EngineError::Request(ref e))) |
+        storage::Error::Txn(TxnError::Mvcc(MvccError::Engine(EngineError::Request(ref e)))) => {
             Some(e.to_owned())
         }
-        Err(Error::SchedTooBusy) => {
+        storage::Error::SchedTooBusy => {
             let mut err = RegionError::new();
             let mut server_is_busy_err = ServerIsBusy::new();
             server_is_busy_err.set_reason(SCHEDULER_IS_BUSY.to_owned());
             err.set_server_is_busy(server_is_busy_err);
             Some(err)
         }
+        _ => None,
+    }
+}
+
+fn extract_region_error<T>(res: &storage::Result<T>) -> Option<RegionError> {
+    match *res {
+        Err(ref err) => extract_region_error_from_err(err),
         _ => None,
     }
 }
