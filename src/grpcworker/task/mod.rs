@@ -66,7 +66,7 @@ impl fmt::Display for Task {
 }
 
 pub enum StepResult {
-    /// Indicate that there are more jobs to be executed to do current functionality.
+    /// Indicate that there are more steps to be executed to do current functionality.
     Continue(Box<Step>),
     /// Indicate that current functionality is done.
     Finish(Result),

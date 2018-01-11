@@ -31,15 +31,15 @@ impl<R: SnapshotStep> Step for R {
     fn async_work(self: Box<Self>, context: &mut WorkerThreadContext, on_done: StepCallback) {
         // TODO: replace sync::Arc::new(sync::Mutex::new(..)) with a flagged sync / send struct
         // to improve performance.
-        let on_done = sync::Arc::new(sync::Mutex::new(Some(on_done)));
-        let on_done_for_result = on_done.clone();
-        let on_done_for_callback = on_done.clone();
+        //        let on_done = sync::Arc::new(sync::Mutex::new(Some(on_done)));
+        //        let on_done_for_result = on_done.clone();
+        //        let on_done_for_callback = on_done.clone();
         let next_step_builder = self.create_next_step_builder();
         let result = context.engine.async_snapshot(
             self.get_request_context(),
             box move |(_, snapshot_result)| {
-                let mut on_done = on_done_for_callback.lock().unwrap();
-                let on_done = on_done.take().unwrap();
+                //                let mut on_done = on_done_for_callback.lock().unwrap();
+                //                let on_done = on_done.take().unwrap();
                 match snapshot_result {
                     Ok(snapshot) => {
                         let next_step = next_step_builder.build(snapshot);
@@ -53,12 +53,6 @@ impl<R: SnapshotStep> Step for R {
                 }
             },
         );
-        if let Err(e) = result {
-            let mut on_done = on_done_for_result.lock().unwrap();
-            let on_done = on_done.take().unwrap();
-            on_done(StepResult::Finish(
-                Err(Error::Storage(storage::Error::from(e))),
-            ));
-        }
+        result.unwrap();
     }
 }
