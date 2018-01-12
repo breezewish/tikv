@@ -297,7 +297,7 @@ mod tests {
     fn expect_get_none(done: Sender<i32>, id: i32) -> Callback {
         Box::new(move |x: Result| {
             assert!(x.is_ok());
-            assert_eq!(x.unwrap(), Value::StorageValue(None));
+            assert_eq!(x.unwrap(), Value::Storage(None));
             done.send(id).unwrap();
         })
     }
@@ -305,7 +305,7 @@ mod tests {
     fn expect_get_val(done: Sender<i32>, v: Vec<u8>, id: i32) -> Callback {
         Box::new(move |x: Result| {
             assert!(x.is_ok());
-            assert_eq!(x.unwrap(), Value::StorageValue(Some(v)));
+            assert_eq!(x.unwrap(), Value::Storage(Some(v)));
             done.send(id).unwrap();
         })
     }

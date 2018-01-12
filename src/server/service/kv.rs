@@ -141,16 +141,8 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             })
             .map(|v| {
                 let mut res = GetResponse::new();
-//                match &v {
-//                    &Ok(ref v) => {
-//                        info!("[!!!] future map v = ok {:?}", v);
-//                    }
-//                    &Err(ref v) => {
-//                        info!("[!!!] future map v = err {:?}", v);
-//                    }
-//                };
                 match v {
-                    Ok(grpcworker::Value::StorageValue(v)) => match v {
+                    Ok(grpcworker::Value::Storage(v)) => match v {
                         Some(val) => res.set_value(val),
                         None => res.set_value(vec![]),
                     }

@@ -87,7 +87,7 @@ impl SubTask for KvGetSubTaskSecond {
         );
         let res = snap_store.get(&self.builder.key, &mut statistics);
         on_done(SubTaskResult::Finish(match res {
-            Ok(val) => Ok(Value::StorageValue(val)),
+            Ok(val) => Ok(Value::Storage(val)),
             Err(e) => Err(Error::Storage(storage::Error::from(e))),
         }));
     }

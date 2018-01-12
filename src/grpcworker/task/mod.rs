@@ -29,17 +29,13 @@ pub enum Priority {
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
-    Foo,
-    Bar,
-    StorageValue(Option<storage::Value>),
+    Storage(Option<storage::Value>),
 }
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Value::Foo => write!(f, "Foo"),
-            Value::Bar => write!(f, "Bar"),
-            Value::StorageValue(_) => write!(f, "StorageValue"),
+            Value::Storage(_) => write!(f, "Storage"),
         }
     }
 }
