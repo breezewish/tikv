@@ -22,7 +22,7 @@ use storage::Engine;
 use server::Config;
 
 pub use self::errors::Error;
-pub use self::task::{Callback, Priority, Result, Step, Task, Value};
+pub use self::task::{Callback, Priority, Result, SubTask, Task, Value};
 pub use self::task::read::*;
 
 struct RunnerEnvironment {
@@ -64,7 +64,7 @@ impl RunnerEnvironment {
         RunnerEnvironment {
             max_read_tasks,
             pool_read_critical: ThreadPoolBuilder::new(
-                thd_name!("grpc-request-pool-read-critical"),
+                thd_name!("grpcwkr-rc"),
                 WorkerThreadContextFactory {
                     engine: engine.clone(),
                 },
@@ -72,7 +72,7 @@ impl RunnerEnvironment {
                 .stack_size(stack_size)
                 .build(),
             pool_read_high: ThreadPoolBuilder::new(
-                thd_name!("grpc-request-pool-read-high"),
+                thd_name!("grpcwkr-rh"),
                 WorkerThreadContextFactory {
                     engine: engine.clone(),
                 },
@@ -80,7 +80,7 @@ impl RunnerEnvironment {
                 .stack_size(stack_size)
                 .build(),
             pool_read_normal: ThreadPoolBuilder::new(
-                thd_name!("grpc-request-pool-read-normal"),
+                thd_name!("grpcwkr-rn"),
                 WorkerThreadContextFactory {
                     engine: engine.clone(),
                 },
@@ -88,7 +88,7 @@ impl RunnerEnvironment {
                 .stack_size(stack_size)
                 .build(),
             pool_read_low: ThreadPoolBuilder::new(
-                thd_name!("grpc-request-pool-read-low"),
+                thd_name!("grpcwkr-rl"),
                 WorkerThreadContextFactory {
                     engine: engine.clone(),
                 },
@@ -162,16 +162,19 @@ impl Runnable<Task> for Runner {
         }
 
         pool.execute(move |context: &mut WorkerThreadContext| {
-            let step = t.step.take().unwrap();
-            step.async_work(context, box move |result: task::StepResult| match result {
-                task::StepResult::Continue(new_step) => {
-                    t.step = Some(new_step);
-                    schedule_task(&scheduler, t);
-                }
-                task::StepResult::Finish(result) => {
-                    (t.callback)(result);
-                }
-            });
+            let subtask = t.subtask.take().unwrap();
+            subtask.async_work(
+                context,
+                box move |result: task::SubTaskResult| match result {
+                    task::SubTaskResult::Continue(new_subtask) => {
+                        t.subtask = Some(new_subtask);
+                        schedule_task(&scheduler, t);
+                    }
+                    task::SubTaskResult::Finish(result) => {
+                        (t.callback)(result);
+                    }
+                },
+            );
         });
     }
 
@@ -200,7 +203,7 @@ pub struct GrpcRequestWorker {
 
 impl GrpcRequestWorker {
     pub fn new(config: &Config, engine: Box<Engine>) -> GrpcRequestWorker {
-        let worker = Worker::new("grpc-request-worker");
+        let worker = Worker::new("grpcwkr-schd");
         let scheduler = worker.scheduler();
         GrpcRequestWorker {
             read_critical_concurrency: config.grpc_worker_read_critical_concurrency,
@@ -217,13 +220,18 @@ impl GrpcRequestWorker {
 
     /// Execute a task on the specified thread pool and get the result when it is finished.
     ///
-    /// The caller should ensure the matching of the step and its priority, for example, for
+    /// The caller should ensure the matching of the sub task and its priority, for example, for
     /// tasks about reading, the priority should be ReadXxx and the behavior is undefined if a
     /// WriteXxx priority is specified instead.
-    pub fn async_execute(&self, begin_step: Box<Step>, priority: Priority, callback: Callback) {
+    pub fn async_execute(
+        &self,
+        begin_subtask: Box<SubTask>,
+        priority: Priority,
+        callback: Callback,
+    ) {
         let t = Task {
             callback,
-            step: Some(begin_step),
+            subtask: Some(begin_subtask),
             priority,
         };
         schedule_task(&self.scheduler, t);
@@ -314,7 +322,7 @@ mod tests {
         grpc_worker.start().unwrap();
 
         grpc_worker.async_execute(
-            box KvGetStep {
+            box KvGet {
                 req_context: kvrpcpb::Context::new(),
                 key: b"x".to_vec(),
                 start_ts: 100,

@@ -47,35 +47,35 @@ impl fmt::Display for Value {
 pub type Result = result::Result<Value, Error>;
 pub type Callback = Box<boxed::FnBox(Result) + Send>;
 
-/// Task holds everything about a particular functionality. A task may consist of many steps
-/// to be executed. Only current step is stored in the task.
+/// Task holds everything about a particular functionality. A task may consist of many sub tasks
+/// to be executed. Only current sub task is stored in the task.
 pub struct Task {
     pub callback: Callback,
-    pub step: Option<Box<Step>>,
+    pub subtask: Option<Box<SubTask>>,
     pub priority: Priority,
 }
 
 impl fmt::Display for Task {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Task priority = {:?}, step = ", self.priority)?;
-        match self.step {
+        write!(f, "Task priority = {:?}, subtask = ", self.priority)?;
+        match self.subtask {
             None => write!(f, "None"),
-            Some(ref step) => write!(f, "{}", step),
+            Some(ref subtask) => write!(f, "{}", subtask),
         }
     }
 }
 
-pub enum StepResult {
-    /// Indicate that there are more steps to be executed to do current functionality.
-    Continue(Box<Step>),
+pub enum SubTaskResult {
+    /// Indicate that there are more sub tasks to be executed to do current functionality.
+    Continue(Box<SubTask>),
     /// Indicate that current functionality is done.
     Finish(Result),
 }
 
-pub type StepCallback = Box<boxed::FnBox(StepResult) + Send>;
+pub type SubTaskCallback = Box<boxed::FnBox(SubTaskResult) + Send>;
 
-/// Step is a smallest single unit to be executed in the thread pool. A complete functionality may
-/// be assembled by multiple steps.
-pub trait Step: Send + fmt::Display {
-    fn async_work(self: Box<Self>, context: &mut WorkerThreadContext, on_done: StepCallback);
+/// Sub task is a smallest single unit to be executed in the thread pool.
+/// A complete functionality may be assembled by multiple sub tasks.
+pub trait SubTask: Send + fmt::Display {
+    fn async_work(self: Box<Self>, context: &mut WorkerThreadContext, on_done: SubTaskCallback);
 }

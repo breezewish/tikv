@@ -12,27 +12,27 @@
 // limitations under the License.
 
 use std::fmt;
-use super::{Error, Step, StepCallback, StepResult, Value, WorkerThreadContext};
-use super::util::{SnapshotNextStepBuilder, SnapshotStep};
+use super::{Error, SubTask, SubTaskCallback, SubTaskResult, Value, WorkerThreadContext};
+use super::util::{SnapshotNextSubTaskBuilder, SnapshotSubTask};
 use kvproto::kvrpcpb;
 use storage;
 
-pub struct KvGetStep {
+pub struct KvGet {
     pub req_context: kvrpcpb::Context,
     pub key: Vec<u8>,
     pub start_ts: u64,
 }
 
-impl fmt::Display for KvGetStep {
+impl fmt::Display for KvGet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "KvGet[1]")
     }
 }
 
-impl SnapshotStep for KvGetStep {
+impl SnapshotSubTask for KvGet {
     #[inline]
-    fn create_next_step_builder(&self) -> Box<SnapshotNextStepBuilder> {
-        box KvGetStepSecondBuilder {
+    fn new_next_subtask_builder(&self) -> Box<SnapshotNextSubTaskBuilder> {
+        box KvGetSubTaskSecondBuilder {
             isolation_level: self.req_context.get_isolation_level(),
             not_fill_cache: self.req_context.get_not_fill_cache(),
             key: storage::Key::from_raw(self.key.as_slice()),
@@ -45,35 +45,39 @@ impl SnapshotStep for KvGetStep {
     }
 }
 
-struct KvGetStepSecondBuilder {
+struct KvGetSubTaskSecondBuilder {
     isolation_level: kvrpcpb::IsolationLevel,
     not_fill_cache: bool,
     key: storage::Key,
     start_ts: u64,
 }
 
-impl SnapshotNextStepBuilder for KvGetStepSecondBuilder {
-    fn build(self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<Step> {
-        box KvGetStepSecond {
+impl SnapshotNextSubTaskBuilder for KvGetSubTaskSecondBuilder {
+    fn build(self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<SubTask> {
+        box KvGetSubTaskSecond {
             snapshot: Some(snapshot),
             builder: self,
         }
     }
 }
 
-struct KvGetStepSecond {
+struct KvGetSubTaskSecond {
     snapshot: Option<Box<storage::Snapshot>>,
-    builder: Box<KvGetStepSecondBuilder>,
+    builder: Box<KvGetSubTaskSecondBuilder>,
 }
 
-impl fmt::Display for KvGetStepSecond {
+impl fmt::Display for KvGetSubTaskSecond {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "KvGet[2]")
     }
 }
 
-impl Step for KvGetStepSecond {
-    fn async_work(mut self: Box<Self>, _context: &mut WorkerThreadContext, on_done: StepCallback) {
+impl SubTask for KvGetSubTaskSecond {
+    fn async_work(
+        mut self: Box<Self>,
+        _context: &mut WorkerThreadContext,
+        on_done: SubTaskCallback,
+    ) {
         let mut statistics = storage::Statistics::default();
         let snap_store = storage::SnapshotStore::new(
             self.snapshot.take().unwrap(),
@@ -82,7 +86,7 @@ impl Step for KvGetStepSecond {
             !self.builder.not_fill_cache,
         );
         let res = snap_store.get(&self.builder.key, &mut statistics);
-        on_done(StepResult::Finish(match res {
+        on_done(SubTaskResult::Finish(match res {
             Ok(val) => Ok(Value::StorageValue(val)),
             Err(e) => Err(Error::Storage(storage::Error::from(e))),
         }));

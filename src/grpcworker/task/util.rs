@@ -15,14 +15,14 @@ use storage;
 use kvproto::kvrpcpb;
 use std::{cell, fmt, sync};
 
-use super::{Error, Step, StepCallback, StepResult, Value, WorkerThreadContext};
+use super::{Error, SubTask, SubTaskCallback, SubTaskResult, Value, WorkerThreadContext};
 
-pub trait SnapshotNextStepBuilder: Send {
-    fn build(self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<Step>;
+pub trait SnapshotNextSubTaskBuilder: Send {
+    fn build(self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<SubTask>;
 }
 
-pub trait SnapshotStep: Send + fmt::Display {
-    fn create_next_step_builder(&self) -> Box<SnapshotNextStepBuilder>;
+pub trait SnapshotSubTask: Send + fmt::Display {
+    fn new_next_subtask_builder(&self) -> Box<SnapshotNextSubTaskBuilder>;
     fn get_request_context(&self) -> &kvrpcpb::Context;
 }
 
@@ -46,22 +46,24 @@ impl<T> UnsafeOnetimeCell<T> {
 
 unsafe impl<T> Sync for UnsafeOnetimeCell<T> {}
 
-impl<R: SnapshotStep> Step for R {
+impl<R: SnapshotSubTask> SubTask for R {
     #[inline]
-    fn async_work(self: Box<Self>, context: &mut WorkerThreadContext, on_done: StepCallback) {
+    fn async_work(self: Box<Self>, context: &mut WorkerThreadContext, on_done: SubTaskCallback) {
         let on_done = sync::Arc::new(UnsafeOnetimeCell::new(on_done));
         let on_done_for_result = on_done.clone();
         let on_done_for_callback = on_done.clone();
-        let next_step_builder = self.create_next_step_builder();
+        let next_subtask_builder = self.new_next_subtask_builder();
         let result = context.engine.async_snapshot(
             self.get_request_context(),
             box move |(_, snapshot_result)| match snapshot_result {
                 Ok(snapshot) => {
-                    let next_step = next_step_builder.build(snapshot);
-                    (on_done_for_callback.take_once())(StepResult::Continue(Box::from(next_step)));
+                    let next_subtask = next_subtask_builder.build(snapshot);
+                    (on_done_for_callback.take_once())(
+                        SubTaskResult::Continue(Box::from(next_subtask)),
+                    );
                 }
                 Err(e) => {
-                    (on_done_for_callback.take_once())(StepResult::Finish(
+                    (on_done_for_callback.take_once())(SubTaskResult::Finish(
                         Err(Error::Storage(storage::Error::from(e))),
                     ));
                 }
@@ -69,7 +71,7 @@ impl<R: SnapshotStep> Step for R {
         );
         // TODO: Test whether this actually works
         if let Err(e) = result {
-            (on_done_for_result.take_once())(StepResult::Finish(
+            (on_done_for_result.take_once())(SubTaskResult::Finish(
                 Err(Error::Storage(storage::Error::from(e))),
             ));
         }

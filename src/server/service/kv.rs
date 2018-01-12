@@ -109,7 +109,7 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
 
         let (cb, future) = make_callback();
         self.grpc_worker.async_execute(
-            box grpcworker::KvGetStep {
+            box grpcworker::KvGet {
                 req_context: req.take_context(),
                 key: req.take_key(),
                 start_ts: req.get_version(),
