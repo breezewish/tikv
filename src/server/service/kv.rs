@@ -830,6 +830,15 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             .map(|v| {
                 match v {
                     Ok(grpcworker::Value::Coprocessor(res)) => res,
+                    Err(grpcworker::Error::Storage(e)) => {
+                        let mut res = Response::new();
+                        if let Some(err) = extract_region_error_from_err(&e) {
+                            res.set_region_error(err);
+                        } else {
+                            unreachable!();
+                        }
+                        res
+                    }
                     _ => unreachable!(),
                 }
             })
