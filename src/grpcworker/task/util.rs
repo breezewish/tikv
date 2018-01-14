@@ -15,14 +15,14 @@ use storage;
 use kvproto::kvrpcpb;
 use std::{cell, fmt, sync};
 
-use super::{Error, SubTask, SubTaskCallback, SubTaskResult, Value, WorkerThreadContext};
+use super::*;
 
 pub trait SnapshotNextSubTaskBuilder: Send {
-    fn build(self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<SubTask>;
+    fn build(mut self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<SubTask>;
 }
 
 pub trait SnapshotSubTask: Send + fmt::Display {
-    fn new_next_subtask_builder(&self) -> Box<SnapshotNextSubTaskBuilder>;
+    fn new_next_subtask_builder(&mut self) -> Box<SnapshotNextSubTaskBuilder>;
     fn get_request_context(&self) -> &kvrpcpb::Context;
 }
 
@@ -48,7 +48,11 @@ unsafe impl<T> Sync for UnsafeOnetimeCell<T> {}
 
 impl<R: SnapshotSubTask> SubTask for R {
     #[inline]
-    fn async_work(self: Box<Self>, context: &mut WorkerThreadContext, on_done: SubTaskCallback) {
+    fn async_work(
+        mut self: Box<Self>,
+        context: &mut WorkerThreadContext,
+        on_done: SubTaskCallback,
+    ) {
         let on_done = sync::Arc::new(UnsafeOnetimeCell::new(on_done));
         let on_done_for_result = on_done.clone();
         let on_done_for_callback = on_done.clone();

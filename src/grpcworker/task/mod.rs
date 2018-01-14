@@ -11,13 +11,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod read;
+pub mod kvget;
+pub mod cop;
 mod util;
 
 use std::{boxed, fmt, result};
 use storage;
+use kvproto::coprocessor as coppb;
 
-pub use super::{Error, WorkerThreadContext};
+use super::*;
 
 #[derive(Debug, Copy, Clone)]
 pub enum Priority {
@@ -30,12 +32,14 @@ pub enum Priority {
 #[derive(Debug, PartialEq)]
 pub enum Value {
     Storage(Option<storage::Value>),
+    Coprocessor(coppb::Response),
 }
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Value::Storage(_) => write!(f, "Storage"),
+            Value::Coprocessor(ref res) => write!(f, "Coprocessor {:?}", res),
         }
     }
 }

@@ -23,96 +23,68 @@ use server::Config;
 
 pub use self::errors::Error;
 pub use self::task::{Callback, Priority, Result, SubTask, Task, Value};
-pub use self::task::read::*;
-
-struct RunnerEnvironment {
-    pool_read_critical: ThreadPool<WorkerThreadContext>,
-    pool_read_high: ThreadPool<WorkerThreadContext>,
-    pool_read_normal: ThreadPool<WorkerThreadContext>,
-    pool_read_low: ThreadPool<WorkerThreadContext>,
-    max_read_tasks: usize,
-}
-
-pub struct WorkerThreadContext {
-    engine: Box<Engine>,
-}
-
-impl threadpool::Context for WorkerThreadContext {}
+pub use self::task::kvget::*;
+pub use self::task::cop::*;
 
 struct WorkerThreadContextFactory {
+    end_point_batch_row_limit: usize,
+    end_point_recursion_limit: u32,
     engine: Box<Engine>,
+}
+
+impl Clone for WorkerThreadContextFactory {
+    fn clone(&self) -> WorkerThreadContextFactory {
+        WorkerThreadContextFactory {
+            engine: self.engine.clone(),
+            ..*self
+        }
+    }
 }
 
 impl threadpool::ContextFactory<WorkerThreadContext> for WorkerThreadContextFactory {
     fn create(&self) -> WorkerThreadContext {
         WorkerThreadContext {
+            end_point_batch_row_limit: self.end_point_batch_row_limit,
+            end_point_recursion_limit: self.end_point_recursion_limit,
             engine: self.engine.clone(),
         }
     }
 }
 
-impl RunnerEnvironment {
-    fn new(
-        read_critical_concurrency: usize,
-        read_high_concurrency: usize,
-        read_normal_concurrency: usize,
-        read_low_concurrency: usize,
-        max_read_tasks: usize,
-        stack_size: usize,
-        engine: Box<Engine>,
-    ) -> RunnerEnvironment {
-        RunnerEnvironment {
-            max_read_tasks,
-            pool_read_critical: ThreadPoolBuilder::new(
-                thd_name!("grpcwkr-rc"),
-                WorkerThreadContextFactory {
-                    engine: engine.clone(),
-                },
-            ).thread_count(read_critical_concurrency)
-                .stack_size(stack_size)
-                .build(),
-            pool_read_high: ThreadPoolBuilder::new(
-                thd_name!("grpcwkr-rh"),
-                WorkerThreadContextFactory {
-                    engine: engine.clone(),
-                },
-            ).thread_count(read_high_concurrency)
-                .stack_size(stack_size)
-                .build(),
-            pool_read_normal: ThreadPoolBuilder::new(
-                thd_name!("grpcwkr-rn"),
-                WorkerThreadContextFactory {
-                    engine: engine.clone(),
-                },
-            ).thread_count(read_normal_concurrency)
-                .stack_size(stack_size)
-                .build(),
-            pool_read_low: ThreadPoolBuilder::new(
-                thd_name!("grpcwkr-rl"),
-                WorkerThreadContextFactory {
-                    engine: engine.clone(),
-                },
-            ).thread_count(read_low_concurrency)
-                .stack_size(stack_size)
-                .build(),
-        }
-    }
+pub struct WorkerThreadContext {
+    end_point_batch_row_limit: usize,
+    end_point_recursion_limit: u32,
+    engine: Box<Engine>,
+}
 
-    fn shutdown(&mut self) {
-        if let Err(e) = self.pool_read_critical.stop() {
-            warn!("Stop pool_read_critical failed with {:?}", e);
-        }
-        if let Err(e) = self.pool_read_high.stop() {
-            warn!("Stop pool_read_high failed with {:?}", e);
-        }
-        if let Err(e) = self.pool_read_normal.stop() {
-            warn!("Stop pool_read_normal failed with {:?}", e);
-        }
-        if let Err(e) = self.pool_read_low.stop() {
-            warn!("Stop pool_read_low failed with {:?}", e);
-        }
-    }
+impl threadpool::Context for WorkerThreadContext {}
 
+#[inline]
+fn schedule_task(scheduler: &Scheduler<Task>, t: Task) {
+    match scheduler.schedule(t) {
+        Err(ScheduleError::Full(t)) => {
+            let task_detail = format!("{}", t);
+            (t.callback)(Err(Error::SchedulerBusy(task_detail)));
+        }
+        Err(ScheduleError::Stopped(t)) => {
+            let task_detail = format!("{}", t);
+            (t.callback)(Err(Error::SchedulerStopped(task_detail)));
+        }
+        Ok(_) => (),
+    }
+}
+
+struct Runner {
+    pool_read_critical: ThreadPool<WorkerThreadContext>,
+    pool_read_high: ThreadPool<WorkerThreadContext>,
+    pool_read_normal: ThreadPool<WorkerThreadContext>,
+    pool_read_low: ThreadPool<WorkerThreadContext>,
+    max_read_tasks: usize,
+
+    scheduler: Scheduler<Task>,
+}
+
+impl Runner {
     /// Get a reference for the thread pool by the specified priority flag.
     #[inline]
     fn get_pool_by_priority(&self, priority: Priority) -> &ThreadPool<WorkerThreadContext> {
@@ -131,31 +103,11 @@ impl RunnerEnvironment {
     }
 }
 
-#[inline]
-fn schedule_task(scheduler: &Scheduler<Task>, t: Task) {
-    match scheduler.schedule(t) {
-        Err(ScheduleError::Full(t)) => {
-            let task_detail = format!("{}", t);
-            (t.callback)(Err(Error::SchedulerBusy(task_detail)));
-        }
-        Err(ScheduleError::Stopped(t)) => {
-            let task_detail = format!("{}", t);
-            (t.callback)(Err(Error::SchedulerStopped(task_detail)));
-        }
-        Ok(_) => (),
-    }
-}
-
-struct Runner {
-    runner_env: RunnerEnvironment,
-    scheduler: Scheduler<Task>,
-}
-
 impl Runnable<Task> for Runner {
     fn run(&mut self, mut t: Task) {
         let scheduler = self.scheduler.clone();
-        let pool = self.runner_env.get_pool_by_priority(t.priority);
-        if self.runner_env.is_pool_busy(pool) {
+        let pool = self.get_pool_by_priority(t.priority);
+        if self.is_pool_busy(pool) {
             let task_detail = format!("{}", t);
             (t.callback)(Err(Error::PoolBusy(task_detail)));
             return;
@@ -179,7 +131,20 @@ impl Runnable<Task> for Runner {
     }
 
     fn shutdown(&mut self) {
-        self.runner_env.shutdown();
+        // Thread pools are built somewhere else while their ownerships are passed to the runner.
+        // So the runner is responsible for destroying the thread pools.
+        if let Err(e) = self.pool_read_critical.stop() {
+            warn!("Stop pool_read_critical failed with {:?}", e);
+        }
+        if let Err(e) = self.pool_read_high.stop() {
+            warn!("Stop pool_read_high failed with {:?}", e);
+        }
+        if let Err(e) = self.pool_read_normal.stop() {
+            warn!("Stop pool_read_normal failed with {:?}", e);
+        }
+        if let Err(e) = self.pool_read_low.stop() {
+            warn!("Stop pool_read_low failed with {:?}", e);
+        }
     }
 }
 
@@ -190,6 +155,9 @@ pub struct GrpcRequestWorker {
     read_low_concurrency: usize,
     max_read_tasks: usize,
     stack_size: usize,
+
+    end_point_batch_row_limit: usize,
+    end_point_recursion_limit: u32,
     engine: Box<Engine>,
 
     /// `worker` is protected via a mutex to prevent concurrent mutable access
@@ -206,13 +174,20 @@ impl GrpcRequestWorker {
         let worker = Worker::new("grpcwkr-schd");
         let scheduler = worker.scheduler();
         GrpcRequestWorker {
+            // Runner configurations
             read_critical_concurrency: config.grpc_worker_read_critical_concurrency,
             read_high_concurrency: config.grpc_worker_read_high_concurrency,
             read_normal_concurrency: config.grpc_worker_read_normal_concurrency,
             read_low_concurrency: config.grpc_worker_read_low_concurrency,
             max_read_tasks: config.grpc_worker_max_read_tasks,
             stack_size: config.grpc_worker_stack_size.0 as usize,
+
+            // Available in runner thread contexts
+            end_point_batch_row_limit: config.end_point_batch_row_limit,
+            end_point_recursion_limit: config.end_point_recursion_limit,
             engine,
+
+            // For the scheduler
             worker: sync::Arc::new(sync::Mutex::new(worker)),
             scheduler,
         }
@@ -238,18 +213,38 @@ impl GrpcRequestWorker {
     }
 
     pub fn start(&mut self) -> result::Result<(), io::Error> {
-        let runner_env = RunnerEnvironment::new(
-            self.read_critical_concurrency,
-            self.read_high_concurrency,
-            self.read_normal_concurrency,
-            self.read_low_concurrency,
-            self.max_read_tasks,
-            self.stack_size,
-            self.engine.clone(),
-        );
+        let thread_context_factory = WorkerThreadContextFactory {
+            end_point_recursion_limit: self.end_point_recursion_limit,
+            end_point_batch_row_limit: self.end_point_batch_row_limit,
+            engine: self.engine.clone(),
+        };
         let mut worker = self.worker.lock().unwrap();
         let runner = Runner {
-            runner_env,
+            max_read_tasks: self.max_read_tasks,
+            pool_read_critical: ThreadPoolBuilder::new(
+                thd_name!("grpcwkr-rc"),
+                thread_context_factory.clone(),
+            ).thread_count(self.read_critical_concurrency)
+                .stack_size(self.stack_size)
+                .build(),
+            pool_read_high: ThreadPoolBuilder::new(
+                thd_name!("grpcwkr-rh"),
+                thread_context_factory.clone(),
+            ).thread_count(self.read_high_concurrency)
+                .stack_size(self.stack_size)
+                .build(),
+            pool_read_normal: ThreadPoolBuilder::new(
+                thd_name!("grpcwkr-rn"),
+                thread_context_factory.clone(),
+            ).thread_count(self.read_normal_concurrency)
+                .stack_size(self.stack_size)
+                .build(),
+            pool_read_low: ThreadPoolBuilder::new(
+                thd_name!("grpcwkr-rl"),
+                thread_context_factory.clone(),
+            ).thread_count(self.read_low_concurrency)
+                .stack_size(self.stack_size)
+                .build(),
             scheduler: self.scheduler.clone(),
         };
         worker.start(runner)
@@ -266,15 +261,10 @@ impl GrpcRequestWorker {
 impl Clone for GrpcRequestWorker {
     fn clone(&self) -> GrpcRequestWorker {
         GrpcRequestWorker {
-            read_critical_concurrency: self.read_critical_concurrency,
-            read_high_concurrency: self.read_high_concurrency,
-            read_normal_concurrency: self.read_normal_concurrency,
-            read_low_concurrency: self.read_low_concurrency,
-            max_read_tasks: self.max_read_tasks,
-            stack_size: self.stack_size,
             engine: self.engine.clone(),
             worker: self.worker.clone(),
             scheduler: self.scheduler.clone(),
+            ..*self
         }
     }
 }
@@ -322,7 +312,7 @@ mod tests {
         grpc_worker.start().unwrap();
 
         grpc_worker.async_execute(
-            box KvGet {
+            box KvGetSubTask {
                 req_context: kvrpcpb::Context::new(),
                 key: b"x".to_vec(),
                 start_ts: 100,

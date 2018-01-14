@@ -12,26 +12,27 @@
 // limitations under the License.
 
 use std::fmt;
-use super::{Error, SubTask, SubTaskCallback, SubTaskResult, Value, WorkerThreadContext};
-use super::util::{SnapshotNextSubTaskBuilder, SnapshotSubTask};
 use kvproto::kvrpcpb;
 use storage;
 
-pub struct KvGet {
+use super::*;
+use super::util::*;
+
+pub struct KvGetSubTask {
     pub req_context: kvrpcpb::Context,
     pub key: Vec<u8>,
     pub start_ts: u64,
 }
 
-impl fmt::Display for KvGet {
+impl fmt::Display for KvGetSubTask {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "KvGet[1]")
     }
 }
 
-impl SnapshotSubTask for KvGet {
+impl SnapshotSubTask for KvGetSubTask {
     #[inline]
-    fn new_next_subtask_builder(&self) -> Box<SnapshotNextSubTaskBuilder> {
+    fn new_next_subtask_builder(&mut self) -> Box<SnapshotNextSubTaskBuilder> {
         box KvGetSubTaskSecondBuilder {
             isolation_level: self.req_context.get_isolation_level(),
             not_fill_cache: self.req_context.get_not_fill_cache(),
@@ -53,7 +54,7 @@ struct KvGetSubTaskSecondBuilder {
 }
 
 impl SnapshotNextSubTaskBuilder for KvGetSubTaskSecondBuilder {
-    fn build(self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<SubTask> {
+    fn build(mut self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<SubTask> {
         box KvGetSubTaskSecond {
             snapshot: Some(snapshot),
             builder: self,
@@ -90,5 +91,6 @@ impl SubTask for KvGetSubTaskSecond {
             Ok(val) => Ok(Value::Storage(val)),
             Err(e) => Err(Error::Storage(storage::Error::from(e))),
         }));
+        // TODO: handle statistics
     }
 }
