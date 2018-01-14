@@ -20,11 +20,20 @@ use util::threadpool::{self, ThreadPool, ThreadPoolBuilder};
 use util::worker::{Runnable, ScheduleError, Scheduler, Worker};
 use storage::Engine;
 use server::Config;
+use kvproto::kvrpcpb;
 
 pub use self::errors::Error;
 pub use self::task::{Callback, Priority, Result, SubTask, Task, Value};
 pub use self::task::kvget::*;
 pub use self::task::cop::*;
+
+pub fn map_pb_command_priority(priority: kvrpcpb::CommandPri) -> Priority {
+    match priority {
+        kvrpcpb::CommandPri::High => Priority::ReadHigh,
+        kvrpcpb::CommandPri::Normal => Priority::ReadNormal,
+        kvrpcpb::CommandPri::Low => Priority::ReadLow,
+    }
+}
 
 struct WorkerThreadContextFactory {
     end_point_batch_row_limit: usize,

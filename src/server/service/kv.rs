@@ -788,24 +788,57 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
         ctx.spawn(future);
     }
 
-    fn coprocessor(&self, ctx: RpcContext, req: Request, sink: UnarySink<Response>) {
+    fn coprocessor(&self, ctx: RpcContext, mut req: Request, sink: UnarySink<Response>) {
         let label = "coprocessor";
         let timer = GRPC_MSG_HISTOGRAM_VEC
             .with_label_values(&[label])
             .start_coarse_timer();
 
+        let priority = grpcworker::map_pb_command_priority(req.get_context().get_priority());
+
         let (cb, future) = make_callback();
-        let res = self.end_point_scheduler.schedule(EndPointTask::Request(
-            RequestTask::new(req, cb, self.recursion_limit),
-        ));
-        if let Err(e) = res {
-            self.send_fail_status(ctx, sink, Error::from(e), RpcStatusCode::ResourceExhausted);
-            return;
-        }
+        self.grpc_worker.async_execute(
+            box grpcworker::CoprocessorSubTask {
+                req_context: req.get_context().clone(),
+                request: Some(req),
+            },
+            priority,
+            cb,
+        );
 
         let future = future
+            // only catch futures::sync::oneshot::Canceled, map into server::Error
             .map_err(Error::from)
-            .and_then(|res| sink.success(res).map_err(Error::from))
+            .and_then(|v| {
+                match v {
+                    Err(e @ grpcworker::Error::SchedulerBusy(..))
+                    | Err(e @ grpcworker::Error::SchedulerStopped(..))
+                    | Err(e @ grpcworker::Error::PoolBusy(..)) => {
+                        Err(Error::GrpcWorkerBusy(e))
+                    }
+                    v @ Err(_) | v @ Ok(_) => {
+                        Ok(v)
+                    }
+                }
+            })
+            .map_err(|err: Error| {
+                RpcStatus::new(
+                    RpcStatusCode::ResourceExhausted,
+                    Some(format!("{}", err))
+                )
+            })
+            .map(|v| {
+                match v {
+                    Ok(grpcworker::Value::Coprocessor(res)) => res,
+                    _ => unreachable!(),
+                }
+            })
+            .then(|result: Result<Response, RpcStatus>| {
+                (match result {
+                    Ok(res) => sink.success(res),
+                    Err(res) => sink.fail(res),
+                }).map_err(Error::from)
+            })
             .map(|_| timer.observe_duration())
             .map_err(move |e| {
                 debug!("{} failed: {:?}", label, e);
