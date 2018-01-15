@@ -82,6 +82,7 @@ extern crate sys_info;
 extern crate utime;
 #[macro_use]
 extern crate fail;
+extern crate type_name;
 
 #[macro_use]
 pub mod util;

@@ -18,6 +18,7 @@ mod util;
 
 use std::{boxed, fmt, result};
 use storage;
+use type_name;
 use kvproto::coprocessor as coppb;
 
 use super::*;
@@ -51,12 +52,10 @@ pub struct Task {
 
 impl fmt::Debug for Task {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "readpool::Task {{ subtask: {:?}, priority: {:?} }}",
-            self.subtask,
-            self.priority
-        )
+        f.debug_struct(type_name.get<Self>())
+           .field("subtask", &self.subtask)
+           .field("priority", &self.priority)
+           .finish()
     }
 }
 
