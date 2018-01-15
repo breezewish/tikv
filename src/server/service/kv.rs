@@ -41,7 +41,7 @@ use server::snap::Task as SnapTask;
 use server::metrics::*;
 use server::Error;
 use raftstore::store::Msg as StoreMessage;
-use coprocessor::{EndPointTask, RequestTask};
+use coprocessor::EndPointTask;
 use grpcworker::{self, GrpcRequestWorker};
 
 const SCHEDULER_IS_BUSY: &'static str = "scheduler is busy";
@@ -382,31 +382,62 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             .with_label_values(&[label])
             .start_coarse_timer();
 
-        let keys = req.get_keys()
-            .into_iter()
-            .map(|x| Key::from_raw(x))
-            .collect();
-
         let (cb, future) = make_callback();
-        let res = self.storage
-            .async_batch_get(req.take_context(), keys, req.get_version(), cb);
-        if let Err(e) = res {
-            self.send_fail_status(ctx, sink, Error::from(e), RpcStatusCode::ResourceExhausted);
-            return;
-        }
+        self.grpc_worker.async_execute(
+            box grpcworker::KvBatchGetSubTask {
+                req_context: req.take_context(),
+                keys: req.take_keys().to_vec(),
+                start_ts: req.get_version(),
+            },
+            grpcworker::Priority::ReadCritical,
+            cb,
+        );
 
         let future = future
+            // only catch futures::sync::oneshot::Canceled, map into server::Error
             .map_err(Error::from)
-            .map(|v| {
-                let mut resp = BatchGetResponse::new();
-                if let Some(err) = extract_region_error(&v) {
-                    resp.set_region_error(err);
-                } else {
-                    resp.set_pairs(RepeatedField::from_vec(extract_kv_pairs(v)))
+            .and_then(|v| {
+                match v {
+                    Err(e @ grpcworker::Error::SchedulerBusy(..))
+                    | Err(e @ grpcworker::Error::SchedulerStopped(..))
+                    | Err(e @ grpcworker::Error::PoolBusy(..)) => {
+                        Err(Error::GrpcWorkerBusy(e))
+                    }
+                    v @ Err(_) | v @ Ok(_) => {
+                        Ok(v)
+                    }
                 }
-                resp
             })
-            .and_then(|res| sink.success(res).map_err(Error::from))
+            .map_err(|err: Error| {
+                RpcStatus::new(
+                    RpcStatusCode::ResourceExhausted,
+                    Some(format!("{}", err))
+                )
+            })
+            .map(|v| {
+                let mut res = BatchGetResponse::new();
+                match v {
+                    Ok(grpcworker::Value::StorageMultiKvpairs(v)) => {
+                        res.set_pairs(RepeatedField::from_vec(extract_kv_pairs_from_val(v)));
+                    }
+                    Err(grpcworker::Error::Storage(e)) => {
+                        if let Some(err) = extract_region_error_from_err(&e) {
+                            res.set_region_error(err);
+                        } else {
+                            res.set_pairs(RepeatedField::from_vec(extract_kv_pairs_from_err(&e)));
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+                // TODO: Add unit test to test above condition statements
+                res
+            })
+            .then(|result: Result<BatchGetResponse, RpcStatus>| {
+                (match result {
+                    Ok(res) => sink.success(res),
+                    Err(res) => sink.fail(res),
+                }).map_err(Error::from)
+            })
             .map(|_| timer.observe_duration())
             .map_err(move |e| {
                 debug!("{} failed: {:?}", label, e);
@@ -788,7 +819,7 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
         ctx.spawn(future);
     }
 
-    fn coprocessor(&self, ctx: RpcContext, mut req: Request, sink: UnarySink<Response>) {
+    fn coprocessor(&self, ctx: RpcContext, req: Request, sink: UnarySink<Response>) {
         let label = "coprocessor";
         let timer = GRPC_MSG_HISTOGRAM_VEC
             .with_label_values(&[label])
@@ -1135,28 +1166,34 @@ fn extract_key_error(err: &storage::Error) -> KeyError {
     key_error
 }
 
+fn extract_kv_pairs_from_val(res: Vec<storage::Result<storage::KvPair>>) -> Vec<KvPair> {
+    res.into_iter()
+        .map(|r| match r {
+            Ok((key, value)) => {
+                let mut pair = KvPair::new();
+                pair.set_key(key);
+                pair.set_value(value);
+                pair
+            }
+            Err(e) => {
+                let mut pair = KvPair::new();
+                pair.set_error(extract_key_error(&e));
+                pair
+            }
+        })
+        .collect()
+}
+
+fn extract_kv_pairs_from_err(e: &storage::Error) -> Vec<KvPair> {
+    let mut pair = KvPair::new();
+    pair.set_error(extract_key_error(e));
+    vec![pair]
+}
+
 fn extract_kv_pairs(res: storage::Result<Vec<storage::Result<storage::KvPair>>>) -> Vec<KvPair> {
     match res {
-        Ok(res) => res.into_iter()
-            .map(|r| match r {
-                Ok((key, value)) => {
-                    let mut pair = KvPair::new();
-                    pair.set_key(key);
-                    pair.set_value(value);
-                    pair
-                }
-                Err(e) => {
-                    let mut pair = KvPair::new();
-                    pair.set_error(extract_key_error(&e));
-                    pair
-                }
-            })
-            .collect(),
-        Err(e) => {
-            let mut pair = KvPair::new();
-            pair.set_error(extract_key_error(&e));
-            vec![pair]
-        }
+        Ok(res) => extract_kv_pairs_from_val(res),
+        Err(e) => extract_kv_pairs_from_err(&e),
     }
 }
 

@@ -12,6 +12,7 @@
 // limitations under the License.
 
 pub mod kvget;
+pub mod kvbatchget;
 pub mod cop;
 mod util;
 

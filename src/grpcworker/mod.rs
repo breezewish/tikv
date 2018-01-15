@@ -25,6 +25,7 @@ use kvproto::kvrpcpb;
 pub use self::errors::Error;
 pub use self::task::{Callback, Priority, Result, SubTask, Task, Value};
 pub use self::task::kvget::*;
+pub use self::task::kvbatchget::*;
 pub use self::task::cop::*;
 
 pub fn map_pb_command_priority(priority: kvrpcpb::CommandPri) -> Priority {

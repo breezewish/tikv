@@ -17,22 +17,25 @@ use storage;
 use super::*;
 use super::util::*;
 
-/// `KvGet` Subtask 1: Get snapshot and build Subtask 2
+/// `KvBatchGet` Subtask 1: Get snapshot and build Subtask 2
 #[derive(Debug)]
-pub struct KvGetSubTask {
+pub struct KvBatchGetSubTask {
     pub req_context: kvrpcpb::Context,
-    pub key: Vec<u8>,
+    pub keys: Vec<Vec<u8>>,
     pub start_ts: u64,
 }
 
-impl SnapshotSubTask for KvGetSubTask {
+impl SnapshotSubTask for KvBatchGetSubTask {
     #[inline]
     fn new_next_subtask_builder(&mut self) -> Box<SnapshotNextSubTaskBuilder> {
-        box KvGetSubTaskSecondBuilder {
-            options: Some(KvGetSubTaskSecondOptions {
+        box KvBatchGetSubTaskSecondBuilder {
+            options: Some(KvBatchGetSubTaskSecondOptions {
                 isolation_level: self.req_context.get_isolation_level(),
                 not_fill_cache: self.req_context.get_not_fill_cache(),
-                key: storage::Key::from_raw(self.key.as_slice()),
+                keys: self.keys
+                    .iter()
+                    .map(|key| storage::Key::from_raw(key.as_slice()))
+                    .collect(),
                 start_ts: self.start_ts,
             }),
         }
@@ -44,14 +47,14 @@ impl SnapshotSubTask for KvGetSubTask {
 }
 
 
-/// `KvGet` Subtask 2: Invoke `KvGet`
+/// `KvBatchGet` Subtask 2: Invoke `KvBatchGet`
 #[derive(Debug)]
-struct KvGetSubTaskSecond {
+struct KvBatchGetSubTaskSecond {
     snapshot: Option<Box<storage::Snapshot>>,
-    options: KvGetSubTaskSecondOptions,
+    options: KvBatchGetSubTaskSecondOptions,
 }
 
-impl SubTask for KvGetSubTaskSecond {
+impl SubTask for KvBatchGetSubTaskSecond {
     fn async_work(
         mut self: Box<Self>,
         _context: &mut WorkerThreadContext,
@@ -64,9 +67,20 @@ impl SubTask for KvGetSubTaskSecond {
             self.options.isolation_level,
             !self.options.not_fill_cache,
         );
-        let res = snap_store.get(&self.options.key, &mut statistics);
+        let res = snap_store.batch_get(self.options.keys.as_slice(), &mut statistics);
         on_done(SubTaskResult::Finish(match res {
-            Ok(val) => Ok(Value::StorageValue(val)),
+            Ok(results) => {
+                // TODO: Move this logic into storage
+                let mut res = vec![];
+                for (k, v) in self.options.keys.into_iter().zip(results) {
+                    match v {
+                        Ok(Some(x)) => res.push(Ok((k.raw().unwrap(), x))),
+                        Ok(None) => {}
+                        Err(e) => res.push(Err(storage::Error::from(e))),
+                    }
+                }
+                Ok(Value::StorageMultiKvpairs(res))
+            }
             Err(e) => Err(Error::Storage(storage::Error::from(e))),
         }));
         // TODO: handle statistics
@@ -74,21 +88,20 @@ impl SubTask for KvGetSubTaskSecond {
 }
 
 #[derive(Debug)]
-struct KvGetSubTaskSecondOptions {
+struct KvBatchGetSubTaskSecondOptions {
     isolation_level: kvrpcpb::IsolationLevel,
     not_fill_cache: bool,
-    key: storage::Key,
+    keys: Vec<storage::Key>,
     start_ts: u64,
 }
 
-#[derive(Debug)]
-struct KvGetSubTaskSecondBuilder {
-    options: Option<KvGetSubTaskSecondOptions>,
+struct KvBatchGetSubTaskSecondBuilder {
+    options: Option<KvBatchGetSubTaskSecondOptions>,
 }
 
-impl SnapshotNextSubTaskBuilder for KvGetSubTaskSecondBuilder {
+impl SnapshotNextSubTaskBuilder for KvBatchGetSubTaskSecondBuilder {
     fn build(mut self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<SubTask> {
-        box KvGetSubTaskSecond {
+        box KvBatchGetSubTaskSecond {
             snapshot: Some(snapshot),
             options: self.options.take().unwrap(),
         }
