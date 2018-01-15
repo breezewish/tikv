@@ -626,7 +626,7 @@ impl TiDbEndPoint {
 }
 
 impl TiDbEndPoint {
-    fn handle_request(self, mut t: RequestTask, batch_row_limit: usize) -> Statistics {
+    pub fn handle_request(self, mut t: RequestTask, batch_row_limit: usize) -> Statistics {
         t.stop_record_waiting();
 
         if let Err(e) = t.check_outdated() {
