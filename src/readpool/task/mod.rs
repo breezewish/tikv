@@ -52,7 +52,7 @@ pub struct Task {
 
 impl fmt::Debug for Task {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct(type_name.get<Self>())
+        f.debug_struct("Task")
            .field("subtask", &self.subtask)
            .field("priority", &self.priority)
            .finish()
