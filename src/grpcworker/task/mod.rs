@@ -37,6 +37,7 @@ pub enum Value {
 }
 
 pub type Result = result::Result<Value, Error>;
+
 pub type Callback = Box<boxed::FnBox(Result) + Send>;
 
 /// Task holds everything about a particular functionality. A task may consist of many sub tasks
@@ -47,16 +48,24 @@ pub struct Task {
     pub priority: Priority,
 }
 
-impl fmt::Display for Task {
+impl fmt::Debug for Task {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Task priority = {:?}, subtask = ", self.priority)?;
-        match self.subtask {
-            None => write!(f, "None"),
-            Some(ref subtask) => write!(f, "{}", subtask),
-        }
+        write!(
+            f,
+            "grpcworker::Task {{ subtask: {:?}, priority: {:?} }}",
+            self.subtask,
+            self.priority
+        )
     }
 }
 
+impl fmt::Display for Task {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+#[derive(Debug)]
 pub enum SubTaskResult {
     /// Indicate that there are more sub tasks to be executed to do current functionality.
     Continue(Box<SubTask>),
@@ -68,6 +77,6 @@ pub type SubTaskCallback = Box<boxed::FnBox(SubTaskResult) + Send>;
 
 /// Sub task is a smallest single unit to be executed in the thread pool.
 /// A complete functionality may be assembled by multiple sub tasks.
-pub trait SubTask: Send + fmt::Display {
+pub trait SubTask: Send + fmt::Debug {
     fn async_work(self: Box<Self>, context: &mut WorkerThreadContext, on_done: SubTaskCallback);
 }

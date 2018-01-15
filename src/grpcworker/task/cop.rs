@@ -11,7 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
 use kvproto::{coprocessor as coppb, kvrpcpb};
 use storage;
 use coprocessor;
@@ -19,15 +18,10 @@ use coprocessor;
 use super::*;
 use super::util::*;
 
+#[derive(Debug)]
 pub struct CoprocessorSubTask {
     pub req_context: kvrpcpb::Context,
     pub request: Option<coppb::Request>,
-}
-
-impl fmt::Display for CoprocessorSubTask {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Coprocessor[1]")
-    }
 }
 
 impl SnapshotSubTask for CoprocessorSubTask {
@@ -43,6 +37,7 @@ impl SnapshotSubTask for CoprocessorSubTask {
     }
 }
 
+#[derive(Debug)]
 struct CoprocessorSubTaskSecondBuilder {
     request: Option<coppb::Request>,
 }
@@ -56,15 +51,10 @@ impl SnapshotNextSubTaskBuilder for CoprocessorSubTaskSecondBuilder {
     }
 }
 
+#[derive(Debug)]
 struct CoprocessorSubTaskSecond {
     snapshot: Option<Box<storage::Snapshot>>,
     request: coppb::Request,
-}
-
-impl fmt::Display for CoprocessorSubTaskSecond {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Coprocessor[2]")
-    }
 }
 
 impl SubTask for CoprocessorSubTaskSecond {

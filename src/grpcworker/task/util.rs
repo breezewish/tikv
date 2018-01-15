@@ -21,7 +21,7 @@ pub trait SnapshotNextSubTaskBuilder: Send {
     fn build(mut self: Box<Self>, snapshot: Box<storage::Snapshot>) -> Box<SubTask>;
 }
 
-pub trait SnapshotSubTask: Send + fmt::Display {
+pub trait SnapshotSubTask: Send + fmt::Debug {
     fn new_next_subtask_builder(&mut self) -> Box<SnapshotNextSubTaskBuilder>;
     fn get_request_context(&self) -> &kvrpcpb::Context;
 }
@@ -62,9 +62,7 @@ impl<R: SnapshotSubTask> SubTask for R {
             box move |(_, snapshot_result)| match snapshot_result {
                 Ok(snapshot) => {
                     let next_subtask = next_subtask_builder.build(snapshot);
-                    (on_done_for_callback.take_once())(
-                        SubTaskResult::Continue(Box::from(next_subtask)),
-                    );
+                    (on_done_for_callback.take_once())(SubTaskResult::Continue(next_subtask));
                 }
                 Err(e) => {
                     (on_done_for_callback.take_once())(SubTaskResult::Finish(

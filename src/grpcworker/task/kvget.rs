@@ -11,7 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
 use kvproto::kvrpcpb;
 use storage;
 
@@ -19,16 +18,11 @@ use super::*;
 use super::util::*;
 
 /// Kv Get Subtask 1: Get snapshot and build Subtask 2
+#[derive(Debug)]
 pub struct KvGetSubTask {
     pub req_context: kvrpcpb::Context,
     pub key: Vec<u8>,
     pub start_ts: u64,
-}
-
-impl fmt::Display for KvGetSubTask {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "KvGet[1]")
-    }
 }
 
 impl SnapshotSubTask for KvGetSubTask {
@@ -51,15 +45,10 @@ impl SnapshotSubTask for KvGetSubTask {
 
 
 /// Kv Get Subtask 2: Invoke Kv Get
+#[derive(Debug)]
 struct KvGetSubTaskSecond {
     snapshot: Option<Box<storage::Snapshot>>,
     options: KvGetSubTaskSecondOptions,
-}
-
-impl fmt::Display for KvGetSubTaskSecond {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "KvGet[2]")
-    }
 }
 
 impl SubTask for KvGetSubTaskSecond {
@@ -84,6 +73,7 @@ impl SubTask for KvGetSubTaskSecond {
     }
 }
 
+#[derive(Debug)]
 struct KvGetSubTaskSecondOptions {
     isolation_level: kvrpcpb::IsolationLevel,
     not_fill_cache: bool,
@@ -91,6 +81,7 @@ struct KvGetSubTaskSecondOptions {
     start_ts: u64,
 }
 
+#[derive(Debug)]
 struct KvGetSubTaskSecondBuilder {
     options: Option<KvGetSubTaskSecondOptions>,
 }
