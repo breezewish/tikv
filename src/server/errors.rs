@@ -28,7 +28,7 @@ use storage::Error as StorageError;
 use pd::Error as PdError;
 use super::snap::Task as SnapTask;
 use coprocessor::EndPointTask;
-use grpcworker::Error as GrpcWorkerError;
+use readpool::Error as ReadPoolError;
 
 quick_error!{
     #[derive(Debug)]
@@ -110,8 +110,8 @@ quick_error!{
             display("{:?}", err)
             description(err.description())
         }
-        GrpcWorkerBusy(err: GrpcWorkerError) {
-            // no from() since grpcworker::Error may contain other kind of errors
+        ReadPoolBusy(err: ReadPoolError) {
+            // no from() since readpool::Error may contain other kind of errors
             cause(err)
             display("{:?}", err)
             description(err.description())

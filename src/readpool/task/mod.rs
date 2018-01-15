@@ -53,7 +53,7 @@ impl fmt::Debug for Task {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "grpcworker::Task {{ subtask: {:?}, priority: {:?} }}",
+            "readpool::Task {{ subtask: {:?}, priority: {:?} }}",
             self.subtask,
             self.priority
         )

@@ -42,7 +42,7 @@ use server::metrics::*;
 use server::Error;
 use raftstore::store::Msg as StoreMessage;
 use coprocessor::EndPointTask;
-use grpcworker::{self, GrpcRequestWorker};
+use readpool::{self, ReadPool};
 
 const SCHEDULER_IS_BUSY: &'static str = "scheduler is busy";
 
@@ -53,7 +53,7 @@ pub struct Service<T: RaftStoreRouter + 'static> {
     // For handling coprocessor requests.
     end_point_scheduler: Scheduler<EndPointTask>,
     // Pools for executing all requests,
-    grpc_worker: GrpcRequestWorker,
+    read_pool: ReadPool,
     // For handling raft messages.
     ch: T,
     // For handling snapshot.
@@ -65,14 +65,14 @@ pub struct Service<T: RaftStoreRouter + 'static> {
 impl<T: RaftStoreRouter + 'static> Service<T> {
     pub fn new(
         storage: Storage,
-        grpc_worker: GrpcRequestWorker,
+        read_pool: ReadPool,
         end_point_scheduler: Scheduler<EndPointTask>,
         ch: T,
         snap_scheduler: Scheduler<SnapTask>,
         recursion_limit: u32,
     ) -> Service<T> {
         Service {
-            grpc_worker,
+            read_pool,
             storage: storage,
             end_point_scheduler: end_point_scheduler,
             ch: ch,
@@ -108,13 +108,13 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             .start_coarse_timer();
 
         let (cb, future) = make_callback();
-        self.grpc_worker.async_execute(
-            box grpcworker::KvGetSubTask {
+        self.read_pool.async_execute(
+            box readpool::KvGetSubTask {
                 req_context: req.take_context(),
                 key: req.take_key(),
                 start_ts: req.get_version(),
             },
-            grpcworker::Priority::ReadCritical,
+            readpool::Priority::ReadCritical,
             cb,
         );
 
@@ -123,10 +123,10 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             .map_err(Error::from)
             .and_then(|v| {
                 match v {
-                    Err(e @ grpcworker::Error::SchedulerBusy(..))
-                    | Err(e @ grpcworker::Error::SchedulerStopped(..))
-                    | Err(e @ grpcworker::Error::PoolBusy(..)) => {
-                        Err(Error::GrpcWorkerBusy(e))
+                    Err(e @ readpool::Error::SchedulerBusy(..))
+                    | Err(e @ readpool::Error::SchedulerStopped(..))
+                    | Err(e @ readpool::Error::PoolBusy(..)) => {
+                        Err(Error::ReadPoolBusy(e))
                     }
                     v @ Err(_) | v @ Ok(_) => {
                         Ok(v)
@@ -142,11 +142,11 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             .map(|v| {
                 let mut res = GetResponse::new();
                 match v {
-                    Ok(grpcworker::Value::StorageValue(v)) => match v {
+                    Ok(readpool::Value::StorageValue(v)) => match v {
                         Some(val) => res.set_value(val),
                         None => res.set_value(vec![]),
                     }
-                    Err(grpcworker::Error::Storage(e)) => {
+                    Err(readpool::Error::Storage(e)) => {
                         if let Some(err) = extract_region_error_from_err(&e) {
                             res.set_region_error(err);
                         } else {
@@ -383,13 +383,13 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             .start_coarse_timer();
 
         let (cb, future) = make_callback();
-        self.grpc_worker.async_execute(
-            box grpcworker::KvBatchGetSubTask {
+        self.read_pool.async_execute(
+            box readpool::KvBatchGetSubTask {
                 req_context: req.take_context(),
                 keys: req.take_keys().to_vec(),
                 start_ts: req.get_version(),
             },
-            grpcworker::Priority::ReadCritical,
+            readpool::Priority::ReadCritical,
             cb,
         );
 
@@ -398,10 +398,10 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             .map_err(Error::from)
             .and_then(|v| {
                 match v {
-                    Err(e @ grpcworker::Error::SchedulerBusy(..))
-                    | Err(e @ grpcworker::Error::SchedulerStopped(..))
-                    | Err(e @ grpcworker::Error::PoolBusy(..)) => {
-                        Err(Error::GrpcWorkerBusy(e))
+                    Err(e @ readpool::Error::SchedulerBusy(..))
+                    | Err(e @ readpool::Error::SchedulerStopped(..))
+                    | Err(e @ readpool::Error::PoolBusy(..)) => {
+                        Err(Error::ReadPoolBusy(e))
                     }
                     v @ Err(_) | v @ Ok(_) => {
                         Ok(v)
@@ -417,10 +417,10 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             .map(|v| {
                 let mut res = BatchGetResponse::new();
                 match v {
-                    Ok(grpcworker::Value::StorageMultiKvpairs(v)) => {
+                    Ok(readpool::Value::StorageMultiKvpairs(v)) => {
                         res.set_pairs(RepeatedField::from_vec(extract_kv_pairs_from_val(v)));
                     }
-                    Err(grpcworker::Error::Storage(e)) => {
+                    Err(readpool::Error::Storage(e)) => {
                         if let Some(err) = extract_region_error_from_err(&e) {
                             res.set_region_error(err);
                         } else {
@@ -825,11 +825,11 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             .with_label_values(&[label])
             .start_coarse_timer();
 
-        let priority = grpcworker::map_pb_command_priority(req.get_context().get_priority());
+        let priority = readpool::map_pb_command_priority(req.get_context().get_priority());
 
         let (cb, future) = make_callback();
-        self.grpc_worker.async_execute(
-            box grpcworker::CoprocessorSubTask {
+        self.read_pool.async_execute(
+            box readpool::CoprocessorSubTask {
                 req_context: req.get_context().clone(),
                 request: Some(req),
             },
@@ -842,10 +842,10 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             .map_err(Error::from)
             .and_then(|v| {
                 match v {
-                    Err(e @ grpcworker::Error::SchedulerBusy(..))
-                    | Err(e @ grpcworker::Error::SchedulerStopped(..))
-                    | Err(e @ grpcworker::Error::PoolBusy(..)) => {
-                        Err(Error::GrpcWorkerBusy(e))
+                    Err(e @ readpool::Error::SchedulerBusy(..))
+                    | Err(e @ readpool::Error::SchedulerStopped(..))
+                    | Err(e @ readpool::Error::PoolBusy(..)) => {
+                        Err(Error::ReadPoolBusy(e))
                     }
                     v @ Err(_) | v @ Ok(_) => {
                         Ok(v)
@@ -860,8 +860,8 @@ impl<T: RaftStoreRouter + 'static> tikvpb_grpc::Tikv for Service<T> {
             })
             .map(|v| {
                 match v {
-                    Ok(grpcworker::Value::Coprocessor(res)) => res,
-                    Err(grpcworker::Error::Storage(e)) => {
+                    Ok(readpool::Value::Coprocessor(res)) => res,
+                    Err(readpool::Error::Storage(e)) => {
                         let mut res = Response::new();
                         if let Some(err) = extract_region_error_from_err(&e) {
                             res.set_region_error(err);

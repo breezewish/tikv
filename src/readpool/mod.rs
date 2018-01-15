@@ -158,7 +158,7 @@ impl Runnable<Task> for Runner {
     }
 }
 
-pub struct GrpcRequestWorker {
+pub struct ReadPool {
     read_critical_concurrency: usize,
     read_high_concurrency: usize,
     read_normal_concurrency: usize,
@@ -179,18 +179,18 @@ pub struct GrpcRequestWorker {
     scheduler: Scheduler<Task>,
 }
 
-impl GrpcRequestWorker {
-    pub fn new(config: &Config, engine: Box<Engine>) -> GrpcRequestWorker {
-        let worker = Worker::new("grpcwkr-schd");
+impl ReadPool {
+    pub fn new(config: &Config, engine: Box<Engine>) -> ReadPool {
+        let worker = Worker::new("readpool-schd");
         let scheduler = worker.scheduler();
-        GrpcRequestWorker {
+        ReadPool {
             // Runner configurations
-            read_critical_concurrency: config.grpc_worker_read_critical_concurrency,
-            read_high_concurrency: config.grpc_worker_read_high_concurrency,
-            read_normal_concurrency: config.grpc_worker_read_normal_concurrency,
-            read_low_concurrency: config.grpc_worker_read_low_concurrency,
-            max_read_tasks: config.grpc_worker_max_read_tasks,
-            stack_size: config.grpc_worker_stack_size.0 as usize,
+            read_critical_concurrency: config.readpool_read_critical_concurrency,
+            read_high_concurrency: config.readpool_read_high_concurrency,
+            read_normal_concurrency: config.readpool_read_normal_concurrency,
+            read_low_concurrency: config.readpool_read_low_concurrency,
+            max_read_tasks: config.readpool_max_read_tasks,
+            stack_size: config.readpool_stack_size.0 as usize,
 
             // Available in runner thread contexts
             end_point_batch_row_limit: config.end_point_batch_row_limit,
@@ -232,25 +232,25 @@ impl GrpcRequestWorker {
         let runner = Runner {
             max_read_tasks: self.max_read_tasks,
             pool_read_critical: ThreadPoolBuilder::new(
-                thd_name!("grpcwkr-rc"),
+                thd_name!("readpool-c"),
                 thread_context_factory.clone(),
             ).thread_count(self.read_critical_concurrency)
                 .stack_size(self.stack_size)
                 .build(),
             pool_read_high: ThreadPoolBuilder::new(
-                thd_name!("grpcwkr-rh"),
+                thd_name!("readpool-h"),
                 thread_context_factory.clone(),
             ).thread_count(self.read_high_concurrency)
                 .stack_size(self.stack_size)
                 .build(),
             pool_read_normal: ThreadPoolBuilder::new(
-                thd_name!("grpcwkr-rn"),
+                thd_name!("readpool-n"),
                 thread_context_factory.clone(),
             ).thread_count(self.read_normal_concurrency)
                 .stack_size(self.stack_size)
                 .build(),
             pool_read_low: ThreadPoolBuilder::new(
-                thd_name!("grpcwkr-rl"),
+                thd_name!("readpool-l"),
                 thread_context_factory.clone(),
             ).thread_count(self.read_low_concurrency)
                 .stack_size(self.stack_size)
@@ -263,14 +263,14 @@ impl GrpcRequestWorker {
     pub fn shutdown(&mut self) {
         let mut worker = self.worker.lock().unwrap();
         if let Err(e) = worker.stop().unwrap().join() {
-            error!("failed to stop GrpcWorker: {:?}", e);
+            error!("failed to stop readpool: {:?}", e);
         }
     }
 }
 
-impl Clone for GrpcRequestWorker {
-    fn clone(&self) -> GrpcRequestWorker {
-        GrpcRequestWorker {
+impl Clone for ReadPool {
+    fn clone(&self) -> ReadPool {
+        ReadPool {
             engine: self.engine.clone(),
             worker: self.worker.clone(),
             scheduler: self.scheduler.clone(),
@@ -281,7 +281,6 @@ impl Clone for GrpcRequestWorker {
 
 #[cfg(test)]
 mod tests {
-    use util::worker::Worker;
     use std::sync::mpsc::{channel, Sender};
     use storage;
     use kvproto::kvrpcpb;
@@ -319,15 +318,15 @@ mod tests {
     #[test]
     fn test_scheduler_run() {
         let storage_config = storage::Config::default();
-        let mut storage = storage::Storage::new(&storage_config).unwrap();
+        let storage = storage::Storage::new(&storage_config).unwrap();
 
         let (tx, rx) = channel();
 
         let worker_config = Config::default();
-        let mut grpc_worker = GrpcRequestWorker::new(&worker_config, storage.get_engine());
-        grpc_worker.start().unwrap();
+        let mut read_pool = ReadPool::new(&worker_config, storage.get_engine());
+        read_pool.start().unwrap();
 
-        grpc_worker.async_execute(
+        read_pool.async_execute(
             box KvGetSubTask {
                 req_context: kvrpcpb::Context::new(),
                 key: b"x".to_vec(),
@@ -338,6 +337,6 @@ mod tests {
         );
         assert_eq!(rx.recv().unwrap(), 0);
 
-        grpc_worker.shutdown();
+        read_pool.shutdown();
     }
 }
