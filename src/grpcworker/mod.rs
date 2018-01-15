@@ -296,7 +296,10 @@ mod tests {
     fn expect_get_none(done: Sender<i32>, id: i32) -> Callback {
         Box::new(move |x: Result| {
             assert!(x.is_ok());
-            assert_eq!(x.unwrap(), Value::Storage(None));
+            match x.unwrap() {
+                Value::StorageValue(val) => assert_eq!(val, None),
+                _ => unreachable!(),
+            }
             done.send(id).unwrap();
         })
     }
@@ -304,7 +307,10 @@ mod tests {
     fn expect_get_val(done: Sender<i32>, v: Vec<u8>, id: i32) -> Callback {
         Box::new(move |x: Result| {
             assert!(x.is_ok());
-            assert_eq!(x.unwrap(), Value::Storage(Some(v)));
+            match x.unwrap() {
+                Value::StorageValue(val) => assert_eq!(val, Some(v)),
+                _ => unreachable!(),
+            }
             done.send(id).unwrap();
         })
     }

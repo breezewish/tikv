@@ -29,19 +29,11 @@ pub enum Priority {
     ReadCritical,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Value {
-    Storage(Option<storage::Value>),
+    StorageValue(Option<storage::Value>),
+    StorageMultiKvpairs(Vec<storage::Result<storage::KvPair>>),
     Coprocessor(coppb::Response),
-}
-
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Value::Storage(_) => write!(f, "Storage"),
-            Value::Coprocessor(ref res) => write!(f, "Coprocessor {:?}", res),
-        }
-    }
 }
 
 pub type Result = result::Result<Value, Error>;

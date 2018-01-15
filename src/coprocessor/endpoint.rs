@@ -620,7 +620,7 @@ fn err_resp(e: Error) -> Response {
     resp
 }
 
-struct CopStats {
+pub struct CopStats {
     stats: Statistics,
     scan_counter: ScanCounter,
 }
