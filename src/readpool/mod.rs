@@ -281,10 +281,14 @@ impl Clone for ReadPool {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc::{channel, Sender};
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::error;
+    use std::thread;
+    use std::time::Duration;
     use storage;
     use kvproto::kvrpcpb;
     use super::*;
+    use super::task::*;
 
     fn expect_ok(done: Sender<i32>, id: i32) -> Callback {
         Box::new(move |x: Result| {
@@ -315,27 +319,241 @@ mod tests {
         })
     }
 
-    #[test]
-    fn test_scheduler_run() {
+    fn expect_err(done: Sender<i32>, desc: &str, id: i32) -> Callback {
+        let desc = desc.to_string();
+        Box::new(move |x: Result| {
+            assert!(x.is_err());
+            match x {
+                Err(e) => assert_eq!(error::Error::description(&e), desc),
+                _ => unreachable!(),
+            }
+            done.send(id).unwrap();
+        })
+    }
+
+    /// Initialize a storage and create a new read pool wraps it
+    fn new_read_pool(config: Config) -> ReadPool {
         let storage_config = storage::Config::default();
         let storage = storage::Storage::new(&storage_config).unwrap();
+        ReadPool::new(&config, storage.get_engine())
+    }
 
+    /// Make a `Value::StorageValue` success result for asserting
+    fn make_value_result(v: Vec<u8>) -> Result {
+        Ok(Value::StorageValue(Some(v)))
+    }
+
+    /// Make an `Error::Other` result for asserting
+    fn make_err_result(desc: &str) -> Result {
+        Err(Error::Other(box_err!(desc)))
+    }
+
+    /// A dummy subtask that immediately returns the result
+    // what itself is constructed
+    #[derive(Debug)]
+    struct Foo {
+        val: Option<Result>,
+    }
+    impl SubTask for Foo {
+        fn async_work(
+            mut self: Box<Self>,
+            _context: &mut WorkerThreadContext,
+            on_done: SubTaskCallback,
+        ) {
+            on_done(SubTaskResult::Finish(self.val.take().unwrap()));
+        }
+    }
+    impl Foo {
+        fn new_value(v: Vec<u8>) -> Box<Foo> {
+            box Foo {
+                val: Some(make_value_result(v)),
+            }
+        }
+        fn new_err(desc: &str) -> Box<Foo> {
+            box Foo {
+                val: Some(make_err_result(desc)),
+            }
+        }
+    }
+
+    /// A dummy subtask that immediately returns a `StorageValue` exactly as
+    // what itself is constructed
+    #[derive(Debug)]
+    struct FooAsync {
+        rx: Option<Receiver<Result>>,
+    }
+    impl SubTask for FooAsync {
+        fn async_work(
+            mut self: Box<Self>,
+            _context: &mut WorkerThreadContext,
+            on_done: SubTaskCallback,
+        ) {
+            let rx = self.rx.take().unwrap();
+            thread::spawn(move || {
+                let val = rx.recv().unwrap();
+                on_done(SubTaskResult::Finish(val));
+            });
+        }
+    }
+    impl FooAsync {
+        fn new(rx: Receiver<Result>) -> Box<FooAsync> {
+            box FooAsync { rx: Some(rx) }
+        }
+    }
+
+    /// Tests whether the runner handles `SubTaskResult::Finish(Ok(...))`
+    #[test]
+    fn test_subtask_finish_ok() {
         let (tx, rx) = channel();
-
-        let worker_config = Config::default();
-        let mut read_pool = ReadPool::new(&worker_config, storage.get_engine());
+        let mut read_pool = new_read_pool(Config::default());
         read_pool.start().unwrap();
-
         read_pool.async_execute(
-            box KvGetSubTask {
-                req_context: kvrpcpb::Context::new(),
-                key: b"x".to_vec(),
-                start_ts: 100,
-            },
+            Foo::new_value(vec![1, 5, 12]),
             Priority::ReadCritical,
-            expect_get_none(tx.clone(), 0),
+            expect_get_val(tx.clone(), vec![1, 5, 12], 0),
         );
         assert_eq!(rx.recv().unwrap(), 0);
+
+        let (task_tx, task_rx) = channel();
+        read_pool.async_execute(
+            FooAsync::new(task_rx),
+            Priority::ReadCritical,
+            expect_get_val(tx.clone(), vec![3, 14, 15], 1),
+        );
+        assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
+        task_tx.send(make_value_result(vec![3, 14, 15])).unwrap();
+        assert_eq!(rx.recv().unwrap(), 1);
+
+        read_pool.shutdown();
+    }
+
+    /// Tests whether the runner handles `SubTaskResult::Finish(Err(...))`
+    #[test]
+    fn test_subtask_finish_err() {
+        let (tx, rx) = channel();
+        let mut read_pool = new_read_pool(Config::default());
+        read_pool.start().unwrap();
+        read_pool.async_execute(
+            Foo::new_err("foobar"),
+            Priority::ReadCritical,
+            expect_err(tx.clone(), "foobar", 0),
+        );
+        assert_eq!(rx.recv().unwrap(), 0);
+
+        let (task_tx, task_rx) = channel();
+        read_pool.async_execute(
+            FooAsync::new(task_rx),
+            Priority::ReadCritical,
+            expect_err(tx.clone(), "foobar2", 1),
+        );
+        assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
+        task_tx.send(make_err_result("foobar2")).unwrap();
+        assert_eq!(rx.recv().unwrap(), 1);
+
+        read_pool.shutdown();
+    }
+
+    /// Tests whether the runner handles `SubTaskResult::Continue(...)`
+    #[test]
+    fn test_subtask_continue() {
+        #[derive(Debug)]
+        struct Bar {
+            val: Option<Vec<u8>>,
+        }
+        impl SubTask for Bar {
+            fn async_work(
+                mut self: Box<Self>,
+                _context: &mut WorkerThreadContext,
+                on_done: SubTaskCallback,
+            ) {
+                let new_val = self.val.unwrap().iter().map(|v| v * 2).collect();
+                let new_subtask = Foo::new_value(new_val);
+                on_done(SubTaskResult::Continue(new_subtask));
+            }
+        }
+        impl Bar {
+            fn new(v: Vec<u8>) -> Box<Bar> {
+                box Bar { val: Some(v) }
+            }
+        }
+
+        let (tx, rx) = channel();
+        let mut read_pool = new_read_pool(Config::default());
+        read_pool.start().unwrap();
+        read_pool.async_execute(
+            Bar::new(vec![1, 5, 12]),
+            Priority::ReadCritical,
+            expect_get_val(tx.clone(), vec![2, 10, 24], 0),
+        );
+        assert_eq!(rx.recv().unwrap(), 0);
+        read_pool.shutdown();
+    }
+
+    /// Tests whether errors are raised when the thread pools are full
+    #[test]
+    fn test_pool_full() {
+        let (tx, rx) = channel();
+        let mut read_pool = new_read_pool(Config {
+            readpool_read_high_concurrency: 1,
+            readpool_max_read_tasks: 2,
+            ..Config::default()
+        });
+        read_pool.start().unwrap();
+
+        // schedule task 1
+        let (task_tx_1, task_rx_1) = channel();
+        read_pool.async_execute(
+            FooAsync::new(task_rx_1),
+            Priority::ReadHigh,
+            expect_get_val(tx.clone(), vec![3, 2, 1], 1),
+        );
+
+        // schedule task 2
+        let (task_tx_2, task_rx_2) = channel();
+        read_pool.async_execute(
+            FooAsync::new(task_rx_2),
+            Priority::ReadHigh,
+            expect_get_val(tx.clone(), vec![1, 2, 4], 2),
+        );
+
+        // schedule task 3 (busy)
+        let (_, task_rx_3) = channel();
+        read_pool.async_execute(
+            FooAsync::new(task_rx_3),
+            Priority::ReadHigh,
+            expect_err(tx.clone(), "worker thread pool is busy", 3),
+        );
+
+        // task 3 callback is invoked first because of busy
+        assert_eq!(rx.recv().unwrap(), 3);
+
+        // finish task 2
+        task_tx_2.send(make_value_result(vec![1, 2, 4])).unwrap();
+        assert_eq!(rx.recv().unwrap(), 2);
+
+        // schedule task 4
+        let (task_tx_4, task_rx_4) = channel();
+        read_pool.async_execute(
+            FooAsync::new(task_rx_4),
+            Priority::ReadHigh,
+            expect_get_val(tx.clone(), vec![5, 1, 5], 4),
+        );
+
+        // schedule task 5 (busy)
+        let (_, task_rx_5) = channel();
+        read_pool.async_execute(
+            FooAsync::new(task_rx_5),
+            Priority::ReadHigh,
+            expect_err(tx.clone(), "worker thread pool is busy", 5),
+        );
+
+        // finish task 1
+        task_tx_1.send(make_value_result(vec![3, 2, 1])).unwrap();
+        assert_eq!(rx.recv().unwrap(), 1);
+
+        // finish task 4
+        task_tx_4.send(make_value_result(vec![5, 1, 5])).unwrap();
+        assert_eq!(rx.recv().unwrap(), 4);
 
         read_pool.shutdown();
     }
