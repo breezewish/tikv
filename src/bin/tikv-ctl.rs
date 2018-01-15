@@ -44,7 +44,7 @@ use protobuf::RepeatedField;
 use kvproto::raft_cmdpb::RaftCmdRequest;
 use kvproto::raft_serverpb::PeerState;
 use kvproto::metapb::Region;
-use kvproto::eraftpb::Entry;
+use kvproto::eraftpb::{ConfChange, Entry, EntryType};
 use kvproto::kvrpcpb::MvccInfo;
 use kvproto::debugpb::*;
 use kvproto::debugpb::DB as DBType;
@@ -174,9 +174,26 @@ trait DebugExecutor {
         println!("entry {:?}", entry);
         println!("msg len: {}", data.len());
 
-        let mut msg = RaftCmdRequest::new();
-        msg.merge_from_bytes(&data).unwrap();
-        println!("{:?}", msg);
+        if data.is_empty() {
+            return;
+        }
+
+        match entry.get_entry_type() {
+            EntryType::EntryNormal => {
+                let mut msg = RaftCmdRequest::new();
+                msg.merge_from_bytes(&data).unwrap();
+                println!("Normal: {:#?}", msg);
+            }
+            EntryType::EntryConfChange => {
+                let mut msg = ConfChange::new();
+                msg.merge_from_bytes(&data).unwrap();
+                let ctx = msg.take_context();
+                println!("ConfChange: {:?}", msg);
+                let mut cmd = RaftCmdRequest::new();
+                cmd.merge_from_bytes(&ctx).unwrap();
+                println!("ConfChange.RaftCmdRequest: {:#?}", cmd);
+            }
+        }
     }
 
     fn dump_mvccs_infos(
@@ -351,6 +368,8 @@ trait DebugExecutor {
         self.do_compact(db, cf, from, to);
     }
 
+    fn print_bad_regions(&self);
+
     fn set_region_tombstone_after_remove_peer(
         &self,
         mgr: Arc<SecurityManager>,
@@ -412,7 +431,7 @@ impl DebugExecutor for DebugClient {
         req.set_db(DBType::KV);
         req.set_cf(cf.to_owned());
         req.set_key(key);
-        self.get(req)
+        self.get(&req)
             .unwrap_or_else(|e| perror_and_exit("DebugClient::get", e))
             .take_value()
     }
@@ -422,7 +441,7 @@ impl DebugExecutor for DebugClient {
         let mut req = RegionSizeRequest::new();
         req.set_cfs(RepeatedField::from_vec(cfs));
         req.set_region_id(region);
-        self.region_size(req)
+        self.region_size(&req)
             .unwrap_or_else(|e| perror_and_exit("DebugClient::region_size", e))
             .take_entries()
             .into_iter()
@@ -433,7 +452,7 @@ impl DebugExecutor for DebugClient {
     fn get_region_info(&self, region: u64) -> RegionInfo {
         let mut req = RegionInfoRequest::new();
         req.set_region_id(region);
-        let mut resp = self.region_info(req)
+        let mut resp = self.region_info(&req)
             .unwrap_or_else(|e| perror_and_exit("DebugClient::region_info", e));
 
         let mut region_info = RegionInfo::default();
@@ -453,7 +472,7 @@ impl DebugExecutor for DebugClient {
         let mut req = RaftLogRequest::new();
         req.set_region_id(region);
         req.set_log_index(index);
-        self.raft_log(req)
+        self.raft_log(&req)
             .unwrap_or_else(|e| perror_and_exit("DebugClient::raft_log", e))
             .take_entry()
     }
@@ -469,7 +488,8 @@ impl DebugExecutor for DebugClient {
         req.set_to_key(to);
         req.set_limit(limit);
         Box::new(
-            self.scan_mvcc(req)
+            self.scan_mvcc(&req)
+                .unwrap()
                 .map_err(|e| e.to_string())
                 .map(|mut resp| (resp.take_key(), resp.take_info())),
         ) as Box<Stream<Item = (Vec<u8>, MvccInfo), Error = String>>
@@ -481,13 +501,17 @@ impl DebugExecutor for DebugClient {
         req.set_cf(cf.to_owned());
         req.set_from_key(from);
         req.set_to_key(to);
-        self.compact(req)
+        self.compact(&req)
             .unwrap_or_else(|e| perror_and_exit("DebugClient::compact", e));
         println!("success!");
     }
 
     fn set_region_tombstone(&self, _: u64, _: Region) {
-        unimplemented!();
+        unimplemented!("only avaliable for local mode");
+    }
+
+    fn print_bad_regions(&self) {
+        unimplemented!("only avaliable for local mode");
     }
 }
 
@@ -544,6 +568,18 @@ impl DebugExecutor for Debugger {
     fn set_region_tombstone(&self, region_id: u64, region: Region) {
         self.set_region_tombstone(region_id, region)
             .unwrap_or_else(|e| perror_and_exit("Debugger::set_region_tombstone", e))
+    }
+
+    fn print_bad_regions(&self) {
+        let bad_regions = self.bad_regions()
+            .unwrap_or_else(|e| perror_and_exit("Debugger::bad_regions", e));
+        if !bad_regions.is_empty() {
+            for (region_id, error) in bad_regions {
+                println!("{}: {}", region_id, error);
+            }
+            return;
+        }
+        println!("all regions are healthy")
     }
 }
 
@@ -867,6 +903,9 @@ fn main() {
                         .value_delimiter(",")
                         .help("PD endpoints"),
                 ),
+        )
+        .subcommand(
+            SubCommand::with_name("bad-regions").about("get all regions with corrupt raft"),
         );
     let matches = app.clone().get_matches();
 
@@ -959,6 +998,8 @@ fn main() {
             panic!("invalid pd configuration: {:?}", e);
         }
         debug_executor.set_region_tombstone_after_remove_peer(mgr, &cfg, region);
+    } else if matches.subcommand_matches("bad-regions").is_some() {
+        debug_executor.print_bad_regions();
     } else {
         let _ = app.print_help();
     }

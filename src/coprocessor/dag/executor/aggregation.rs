@@ -21,34 +21,34 @@ use util::collections::{OrderMap, OrderMapEntry};
 use coprocessor::codec::table::RowColsDict;
 use coprocessor::codec::datum::{self, approximate_size, Datum, DatumEncoder};
 use coprocessor::endpoint::SINGLE_GROUP;
-use coprocessor::select::aggregate::{self, AggrFunc};
-use coprocessor::select::xeval::EvalContext;
-use coprocessor::dag::expr::Expression;
+use coprocessor::dag::expr::{EvalContext, Expression};
 use coprocessor::metrics::*;
+use coprocessor::local_metrics::*;
 use coprocessor::Result;
 use storage::Statistics;
 
+use super::aggregate::{self, AggrFunc};
 use super::{inflate_with_col_for_dag, Executor, ExprColumnRefVisitor, Row};
 
-struct AggrFuncExpr {
+struct AggFuncExpr {
     args: Vec<Expression>,
     tp: ExprType,
 }
 
-impl AggrFuncExpr {
-    fn batch_build(ctx: &EvalContext, expr: Vec<Expr>) -> Result<Vec<AggrFuncExpr>> {
+impl AggFuncExpr {
+    fn batch_build(ctx: &EvalContext, expr: Vec<Expr>) -> Result<Vec<AggFuncExpr>> {
         expr.into_iter()
-            .map(|v| AggrFuncExpr::build(ctx, v))
+            .map(|v| AggFuncExpr::build(ctx, v))
             .collect()
     }
 
-    fn build(ctx: &EvalContext, mut expr: Expr) -> Result<AggrFuncExpr> {
+    fn build(ctx: &EvalContext, mut expr: Expr) -> Result<AggFuncExpr> {
         let args = box_try!(Expression::batch_build(
             ctx,
             expr.take_children().into_vec()
         ));
         let tp = expr.get_tp();
-        Ok(AggrFuncExpr { args: args, tp: tp })
+        Ok(AggFuncExpr { args: args, tp: tp })
     }
 
     fn eval_args(&self, ctx: &EvalContext, row: &[Datum]) -> Result<Vec<Datum>> {
@@ -61,7 +61,7 @@ impl AggrFunc {
     fn update_with_expr(
         &mut self,
         ctx: &EvalContext,
-        expr: &AggrFuncExpr,
+        expr: &AggFuncExpr,
         row: &[Datum],
     ) -> Result<()> {
         let vals = expr.eval_args(ctx, row)?;
@@ -70,9 +70,9 @@ impl AggrFunc {
     }
 }
 
-pub struct AggregationExecutor {
+pub struct HashAggExecutor {
     group_by: Vec<Expression>,
-    aggr_func: Vec<AggrFuncExpr>,
+    aggr_func: Vec<AggFuncExpr>,
     group_key_aggrs: OrderMap<Vec<u8>, Vec<Box<AggrFunc>>>,
     cursor: usize,
     executed: bool,
@@ -80,15 +80,16 @@ pub struct AggregationExecutor {
     cols: Arc<Vec<ColumnInfo>>,
     related_cols_offset: Vec<usize>, // offset of related columns
     src: Box<Executor>,
+    count: i64,
 }
 
-impl AggregationExecutor {
+impl HashAggExecutor {
     pub fn new(
         mut meta: Aggregation,
         ctx: Arc<EvalContext>,
         columns: Arc<Vec<ColumnInfo>>,
         src: Box<Executor>,
-    ) -> Result<AggregationExecutor> {
+    ) -> Result<HashAggExecutor> {
         // collect all cols used in aggregation
         let mut visitor = ExprColumnRefVisitor::new(columns.len());
         let group_by = meta.take_group_by().into_vec();
@@ -98,9 +99,9 @@ impl AggregationExecutor {
         COPR_EXECUTOR_COUNT
             .with_label_values(&["aggregation"])
             .inc();
-        Ok(AggregationExecutor {
+        Ok(HashAggExecutor {
             group_by: box_try!(Expression::batch_build(&ctx, group_by)),
-            aggr_func: AggrFuncExpr::batch_build(&ctx, aggr_func)?,
+            aggr_func: AggFuncExpr::batch_build(&ctx, aggr_func)?,
             group_key_aggrs: OrderMap::new(),
             cursor: 0,
             executed: false,
@@ -108,6 +109,7 @@ impl AggregationExecutor {
             cols: columns,
             related_cols_offset: visitor.column_offsets(),
             src: src,
+            count: 0,
         })
     }
 
@@ -157,7 +159,7 @@ impl AggregationExecutor {
     }
 }
 
-impl Executor for AggregationExecutor {
+impl Executor for HashAggExecutor {
     fn next(&mut self) -> Result<Option<Row>> {
         if !self.executed {
             self.aggregate()?;
@@ -181,6 +183,7 @@ impl Executor for AggregationExecutor {
                 if !self.group_by.is_empty() {
                     value.extend_from_slice(group_key);
                 }
+                self.count += 1;
                 Ok(Some(Row {
                     handle: 0,
                     data: RowColsDict::new(map![], value),
@@ -190,8 +193,18 @@ impl Executor for AggregationExecutor {
         }
     }
 
+    fn collect_output_counts(&mut self, counts: &mut Vec<i64>) {
+        self.src.collect_output_counts(counts);
+        counts.push(self.count);
+        self.count = 0;
+    }
+
     fn collect_statistics_into(&mut self, statistics: &mut Statistics) {
         self.src.collect_statistics_into(statistics);
+    }
+
+    fn collect_metrics_into(&mut self, metrics: &mut ScanCounter) {
+        self.src.collect_metrics_into(metrics);
     }
 }
 
@@ -253,42 +266,58 @@ mod test {
             new_col_info(1, types::LONG_LONG),
             new_col_info(2, types::VARCHAR),
             new_col_info(3, types::NEW_DECIMAL),
+            new_col_info(4, types::FLOAT),
+            new_col_info(5, types::DOUBLE),
         ];
         let raw_data = vec![
             vec![
                 Datum::I64(1),
                 Datum::Bytes(b"a".to_vec()),
                 Datum::Dec(7.into()),
+                Datum::F64(1.0),
+                Datum::F64(1.0),
             ],
             vec![
                 Datum::I64(2),
                 Datum::Bytes(b"a".to_vec()),
                 Datum::Dec(7.into()),
+                Datum::F64(2.0),
+                Datum::F64(2.0),
             ],
             vec![
                 Datum::I64(3),
                 Datum::Bytes(b"b".to_vec()),
                 Datum::Dec(8.into()),
+                Datum::F64(3.0),
+                Datum::F64(3.0),
             ],
             vec![
                 Datum::I64(4),
                 Datum::Bytes(b"a".to_vec()),
                 Datum::Dec(7.into()),
+                Datum::F64(4.0),
+                Datum::F64(4.0),
             ],
             vec![
                 Datum::I64(5),
                 Datum::Bytes(b"f".to_vec()),
                 Datum::Dec(5.into()),
+                Datum::F64(5.0),
+                Datum::F64(5.0),
             ],
             vec![
                 Datum::I64(6),
                 Datum::Bytes(b"b".to_vec()),
                 Datum::Dec(8.into()),
+                Datum::F64(6.0),
+                Datum::F64(6.0),
             ],
             vec![
                 Datum::I64(7),
                 Datum::Bytes(b"f".to_vec()),
                 Datum::Dec(6.into()),
+                Datum::F64(7.0),
+                Datum::F64(7.0),
             ],
         ];
         let table_data = gen_table_data(tid, &cis, &raw_data);
@@ -308,11 +337,16 @@ mod test {
         let group_by_cols = vec![1, 2];
         let group_by = build_group_by(&group_by_cols);
         aggregation.set_group_by(RepeatedField::from_vec(group_by));
-        let aggr_funcs = vec![(ExprType::Avg, 0), (ExprType::Count, 2)];
+        let aggr_funcs = vec![
+            (ExprType::Avg, 0),
+            (ExprType::Count, 2),
+            (ExprType::Sum, 3),
+            (ExprType::Avg, 4),
+        ];
         let aggr_funcs = build_aggr_func(&aggr_funcs);
         aggregation.set_agg_func(RepeatedField::from_vec(aggr_funcs));
         // init Aggregation Executor
-        let mut aggr_ect = AggregationExecutor::new(
+        let mut aggr_ect = HashAggExecutor::new(
             aggregation,
             Arc::new(EvalContext::default()),
             Arc::new(cis),
@@ -329,6 +363,9 @@ mod test {
                 3 as u64,
                 Decimal::from(7),
                 3 as u64,
+                7.0 as f64,
+                3 as u64,
+                7.0 as f64,
                 b"a".as_ref(),
                 Decimal::from(7),
             ),
@@ -336,6 +373,9 @@ mod test {
                 2 as u64,
                 Decimal::from(9),
                 2 as u64,
+                9.0 as f64,
+                2 as u64,
+                9.0 as f64,
                 b"b".as_ref(),
                 Decimal::from(8),
             ),
@@ -343,6 +383,9 @@ mod test {
                 1 as u64,
                 Decimal::from(5),
                 1 as u64,
+                5.0 as f64,
+                1 as u64,
+                5.0 as f64,
                 b"f".as_ref(),
                 Decimal::from(5),
             ),
@@ -350,11 +393,14 @@ mod test {
                 1 as u64,
                 Decimal::from(7),
                 1 as u64,
+                7.0 as f64,
+                1 as u64,
+                7.0 as f64,
                 b"f".as_ref(),
                 Decimal::from(6),
             ),
         ];
-        let expect_col_cnt = 5;
+        let expect_col_cnt = 8;
         for (row, expect_cols) in row_data.into_iter().zip(expect_row_data) {
             let ds = row.value.as_slice().decode().unwrap();
             assert_eq!(ds.len(), expect_col_cnt);
@@ -364,5 +410,9 @@ mod test {
             assert_eq!(ds[3], Datum::from(expect_cols.3));
             assert_eq!(ds[4], Datum::from(expect_cols.4));
         }
+        let expected_counts = vec![raw_data.len() as i64, expect_row_cnt as i64];
+        let mut counts = Vec::with_capacity(2);
+        aggr_ect.collect_output_counts(&mut counts);
+        assert_eq!(expected_counts, counts);
     }
 }

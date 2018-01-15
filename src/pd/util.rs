@@ -67,12 +67,14 @@ impl Stream for HeartbeatReceiver {
                 }
             }
 
+            warn!("heartbeat receiver is stale, refreshing..");
             self.receiver.take();
 
             let mut inner = self.inner.wl();
             let mut receiver = None;
             if let Either::Left(ref mut recv) = inner.hb_receiver {
                 receiver = recv.take();
+                info!("heartbeat receiver is refreshed.");
             }
             if receiver.is_some() {
                 self.receiver = receiver;
@@ -97,7 +99,7 @@ impl LeaderClient {
         client: PdClient,
         members: GetMembersResponse,
     ) -> LeaderClient {
-        let (tx, rx) = client.region_heartbeat();
+        let (tx, rx) = client.region_heartbeat().unwrap();
         LeaderClient {
             timer: Timer::default(),
             inner: Arc::new(RwLock::new(Inner {
@@ -169,7 +171,7 @@ impl LeaderClient {
 
         {
             let mut inner = self.inner.wl();
-            let (tx, rx) = client.region_heartbeat();
+            let (tx, rx) = client.region_heartbeat().unwrap();
             inner.hb_sender = Either::Left(Some(tx));
             if let Either::Right(ref mut task) = inner.hb_receiver {
                 task.notify();
@@ -373,7 +375,7 @@ fn connect(
     let channel = security_mgr.connect(cb, addr);
     let client = PdClient::new(channel);
     let option = CallOption::default().timeout(Duration::from_secs(REQUEST_TIMEOUT));
-    match client.get_members_opt(GetMembersRequest::new(), option) {
+    match client.get_members_opt(&GetMembersRequest::new(), option) {
         Ok(resp) => Ok((client, resp)),
         Err(e) => Err(Error::Grpc(e)),
     }
