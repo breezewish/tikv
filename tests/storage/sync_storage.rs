@@ -101,6 +101,21 @@ impl SyncStorage {
             .wait()
     }
 
+    pub fn reverse_scan(
+        &self,
+        ctx: Context,
+        key: Key,
+        limit: usize,
+        key_only: bool,
+        start_ts: u64,
+    ) -> Result<Vec<Result<KvPair>>> {
+        let mut opt = Options::new(0, false, key_only);
+        opt.reverse_scan = true;
+        self.store
+            .async_scan(ctx, key, limit, start_ts, opt)
+            .wait()
+    }
+
     pub fn prewrite(
         &self,
         ctx: Context,

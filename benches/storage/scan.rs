@@ -55,7 +55,11 @@ fn bench_scan(b: &mut Bencher, forward_scan: bool, versions: usize, long_value: 
             assert_eq!(kvs.len(), NUMBER_KEYS);
         });
     } else {
-        let start_key = Key::from_raw(&[0xFF].repeat(200));
+        let mut start_key = vec![];
+        for _ in 0..200 {
+            start_key.push(0xFF);
+        }
+        let start_key = Key::from_raw(&start_key);
         b.iter(|| {
             let kvs = store
                 .reverse_scan(

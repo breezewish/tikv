@@ -17,6 +17,7 @@ use kvproto::raft_cmdpb::{CmdType, RaftCmdRequest, Request};
 use protobuf::Message;
 use raft::eraftpb::Entry;
 use rand::{thread_rng, Rng};
+use rand::prelude::*;
 use std::collections::HashMap;
 use test::Bencher;
 
