@@ -23,23 +23,30 @@ use std::path::Path;
 use std::usize;
 
 use log::LogLevelFilter;
-use rocksdb::{BlockBasedOptions, ColumnFamilyOptions, CompactionPriority, DBCompactionStyle,
-              DBCompressionType, DBOptions, DBRecoveryMode};
+use rocksdb::{
+    BlockBasedOptions, ColumnFamilyOptions, CompactionPriority, DBCompactionStyle,
+    DBCompressionType, DBOptions, DBRecoveryMode,
+};
 use sys_info;
 
 use import::Config as ImportConfig;
 use pd::Config as PdConfig;
 use raftstore::coprocessor::Config as CopConfig;
-use raftstore::store::Config as RaftstoreConfig;
 use raftstore::store::keys::region_raft_prefix_len;
-use server::Config as ServerConfig;
+use raftstore::store::Config as RaftstoreConfig;
 use server::readpool;
-use storage::{Config as StorageConfig, CF_DEFAULT, CF_LOCK, CF_RAFT, CF_WRITE,
-              DEFAULT_ROCKSDB_SUB_DIR};
-use util::config::{self, compression_type_level_serde, ReadableDuration, ReadableSize, GB, KB, MB};
+use server::Config as ServerConfig;
+use storage::{
+    Config as StorageConfig, CF_DEFAULT, CF_LOCK, CF_RAFT, CF_WRITE, DEFAULT_ROCKSDB_SUB_DIR,
+};
+use util::config::{
+    self, compression_type_level_serde, ReadableDuration, ReadableSize, GB, KB, MB,
+};
 use util::properties::{MvccPropertiesCollectorFactory, SizePropertiesCollectorFactory};
-use util::rocksdb::{db_exist, CFOptions, EventListener, FixedPrefixSliceTransform,
-                    FixedSuffixSliceTransform, NoopSliceTransform};
+use util::rocksdb::{
+    db_exist, CFOptions, EventListener, FixedPrefixSliceTransform, FixedSuffixSliceTransform,
+    NoopSliceTransform,
+};
 use util::security::SecurityConfig;
 use util::time::duration_to_sec;
 

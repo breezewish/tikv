@@ -13,6 +13,7 @@
 
 #![feature(plugin)]
 #![feature(test)]
+#![feature(repeat_generic_slice)]
 #![cfg_attr(feature = "dev", plugin(clippy))]
 #![cfg_attr(not(feature = "dev"), allow(unknown_lints))]
 #![allow(needless_pass_by_value)]
@@ -34,10 +35,15 @@ mod channel;
 mod coprocessor;
 mod serialization;
 mod writebatch;
+mod storage;
 
 #[allow(dead_code)]
 #[path = "../tests/util/mod.rs"]
 mod util;
+
+#[allow(dead_code)]
+#[path = "../tests/storage/sync_storage.rs"]
+mod sync_storage;
 
 use test::Bencher;
 

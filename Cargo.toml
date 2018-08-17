@@ -124,3 +124,8 @@ opt-level = 3
 debug = true
 # TODO: remove this once rust-lang/rust#50199 is resolved.
 codegen-units = 2
+
+[profile.bench]
+lto = false
+opt-level = 3
+debug = true

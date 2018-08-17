@@ -116,7 +116,7 @@ impl MvccReader {
 
     pub fn load_lock(&mut self, key: &Key) -> Result<Option<Lock>> {
         if self.scan_mode.is_some() && self.lock_cursor.is_none() {
-            let iter_opt = IterOption::new(None, None, true);
+            let iter_opt = IterOption::new(None, None, self.fill_cache);
             let iter = self.snapshot
                 .iter_cf(CF_LOCK, iter_opt, self.get_scan_mode(true))?;
             self.lock_cursor = Some(iter);
@@ -303,7 +303,7 @@ impl MvccReader {
             let iter_opt = IterOption::new(
                 self.lower_bound.as_ref().cloned(),
                 self.upper_bound.as_ref().cloned(),
-                true,
+                self.fill_cache,
             );
             let iter = self.snapshot
                 .iter_cf(CF_LOCK, iter_opt, self.get_scan_mode(true))?;
