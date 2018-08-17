@@ -28,8 +28,10 @@ extern crate rand;
 extern crate rocksdb;
 extern crate tempdir;
 extern crate test;
+#[macro_use]
 extern crate tikv;
 extern crate time;
+extern crate futures;
 
 mod channel;
 mod coprocessor;

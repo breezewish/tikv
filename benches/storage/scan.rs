@@ -1,4 +1,5 @@
 use test::Bencher;
+use test;
 use tempdir::TempDir;
 use super::super::util::KvGenerator;
 

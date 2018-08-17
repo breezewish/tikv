@@ -13,13 +13,12 @@
 
 use kvproto::kvrpcpb::Context;
 
-use super::sync_storage::SyncStorage;
+use super::super::sync_storage::SyncStorage;
 use tikv::server::readpool::{self, ReadPool};
 use tikv::storage;
-use tikv::storage::engine::RocksEngine;
 use tikv::util::worker::FutureWorker;
 
-pub fn new_storage(path: &str) -> SyncStorage<RocksEngine> {
+pub fn new_storage(path: &str) -> SyncStorage {
     let pd_worker = FutureWorker::new("test-pd-worker");
     let read_pool = ReadPool::new(
         "readpool",
