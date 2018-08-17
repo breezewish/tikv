@@ -11,8 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use rand::prelude::*;
 use rand::IsaacRng;
+use rand::prelude::*;
 
 use std::env;
 use std::fmt::Arguments;
@@ -60,12 +60,6 @@ impl Iterator for KvGenerator {
 
         Some((k, v))
     }
-}
-
-/// Generate n pair of kvs.
-pub fn generate_random_kvs(n: usize, key_len: usize, value_len: usize) -> Vec<(Vec<u8>, Vec<u8>)> {
-    let kv_generator = KvGenerator::new(key_len, value_len);
-    kv_generator.take(n).collect()
 }
 
 /// Generate n pair of kvs.

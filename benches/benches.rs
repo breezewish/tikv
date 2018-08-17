@@ -34,8 +34,8 @@ extern crate time;
 mod channel;
 mod coprocessor;
 mod serialization;
-mod writebatch;
 mod storage;
+mod writebatch;
 
 #[allow(dead_code)]
 #[path = "../tests/util/mod.rs"]

@@ -26,7 +26,7 @@ use super::transport_simulate::*;
 use super::util::*;
 
 use rand;
-use rand::Rng;
+use rand::prelude::*;
 use std::sync::atomic::*;
 use std::sync::*;
 use std::thread;

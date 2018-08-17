@@ -11,7 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use rand::{self, Rng};
+use rand;
+use rand::prelude::*;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
 use std::time::Duration;

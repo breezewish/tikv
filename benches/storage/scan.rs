@@ -1,3 +1,10 @@
+use test::Bencher;
+use tempdir::TempDir;
+use super::super::util::KvGenerator;
+
+use tikv::storage::{Mutation, Key, SHORT_VALUE_MAX_LEN};
+use kvproto::kvrpcpb::Context;
+
 fn bench_scan(b: &mut Bencher, forward_scan: bool, versions: usize, long_value: bool) {
     const NUMBER_KEYS: usize = 10000;
 
@@ -8,26 +15,24 @@ fn bench_scan(b: &mut Bencher, forward_scan: bool, versions: usize, long_value: 
 
     let value_length = if long_value {
         SHORT_VALUE_MAX_LEN + 1
-    }  else {
+    } else {
         5
     };
-    let kvs: Vec<_> = KvGenerator::new_by_seed(0xFEE1DEAD, 32, value_length).take(NUMBER_KEYS).collect();
+    let kvs: Vec<_> = KvGenerator::new_by_seed(0xFEE1DEAD, 32, value_length)
+        .take(NUMBER_KEYS)
+        .collect();
     let mut ts_generator = 1..;
     for _ in 0..versions {
         let ts = ts_generator.next().unwrap();
-        let mutations: Vec<_> = kvs
-            .iter()
+        let mutations: Vec<_> = kvs.iter()
             .map(|(k, v)| Mutation::Put((Key::from_raw(k), v.clone())))
             .collect();
         store
-            .prewrite(Context::new(),mutations,kvs[0].0.clone(),ts,)
+            .prewrite(Context::new(), mutations, kvs[0].0.clone(), ts)
             .unwrap();
-        let keys: Vec<_> = kvs
-            .iter()
-            .map(|(k, _)| Key::from_raw(k))
-            .collect();
+        let keys: Vec<_> = kvs.iter().map(|(k, _)| Key::from_raw(k)).collect();
         store
-            .commit(Context::new(),keys,ts,ts_generator.next().unwrap())
+            .commit(Context::new(), keys, ts, ts_generator.next().unwrap())
             .unwrap();
     }
 
