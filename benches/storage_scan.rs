@@ -22,6 +22,7 @@ mod sync_storage;
 extern crate clap;
 extern crate criterion;
 extern crate kvproto;
+#[macro_use]
 extern crate tikv;
 
 use clap::{App, Arg};
