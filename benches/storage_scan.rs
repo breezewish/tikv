@@ -11,6 +11,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![feature(plugin)]
+#![feature(test)]
+#![feature(repeat_generic_slice)]
+#![feature(box_syntax)]
+
 #[allow(dead_code)]
 #[path = "../tests/util/mod.rs"]
 mod util;
@@ -21,18 +26,36 @@ mod sync_storage;
 
 extern crate clap;
 extern crate criterion;
+extern crate futures;
 extern crate kvproto;
+extern crate rand;
+extern crate tempdir;
 #[macro_use]
 extern crate tikv;
 
 use clap::{App, Arg};
 use criterion::{black_box, Bencher, Criterion};
+use tempdir::TempDir;
 
 use kvproto::kvrpcpb::Context;
 use sync_storage::SyncStorage;
-use tikv::storage::engine::RocksEngine;
+use tikv::server::readpool::{self, ReadPool};
+use tikv::storage;
 use tikv::storage::{Key, Mutation};
+use tikv::util::worker::FutureWorker;
 use util::KvGenerator;
+
+pub fn new_storage(path: &str) -> SyncStorage {
+    let pd_worker = FutureWorker::new("test-pd-worker");
+    let read_pool = ReadPool::new(
+        "readpool",
+        &readpool::Config::default_with_concurrency(1),
+        || || storage::ReadPoolContext::new(pd_worker.scheduler()),
+    );
+    let mut config = storage::Config::default();
+    config.data_dir = path.to_owned();
+    SyncStorage::new(&Default::default(), read_pool)
+}
 
 pub fn new_no_cache_context() -> Context {
     let mut ctx = Context::new();
@@ -42,7 +65,8 @@ pub fn new_no_cache_context() -> Context {
 
 /// Benchmark forward scan performance of many DELETE versions.
 fn bench_forward_scan_mvcc_deleted(b: &mut Bencher) {
-    let store = SyncStorage::default();
+    let path = TempDir::new("").unwrap();
+    let store = new_storage(path.path().to_str().unwrap());
     let mut ts_generator = 1..;
 
     let mut kvs = KvGenerator::new(32, 1000);
@@ -118,7 +142,7 @@ impl ::std::fmt::Debug for ScanConfig {
     }
 }
 
-fn prepare_scan_data(store: &SyncStorage<RocksEngine>, config: &ScanConfig) -> u64 {
+fn prepare_scan_data(store: &SyncStorage, config: &ScanConfig) -> u64 {
     let kvs: Vec<_> = KvGenerator::new_by_seed(0xFEE1DEAD, config.key_len, config.value_len)
         .take(config.number_of_keys)
         .collect();
@@ -145,7 +169,8 @@ fn prepare_scan_data(store: &SyncStorage<RocksEngine>, config: &ScanConfig) -> u
 }
 
 fn bench_forward_scan(b: &mut Bencher, input: &ScanConfig) {
-    let store = SyncStorage::default();
+    let path = TempDir::new("").unwrap();
+    let store = new_storage(path.path().to_str().unwrap());
     let max_ts = prepare_scan_data(&store, input);
     b.iter(|| {
         let kvs = store
@@ -162,7 +187,8 @@ fn bench_forward_scan(b: &mut Bencher, input: &ScanConfig) {
 }
 
 fn bench_backward_scan(b: &mut Bencher, input: &ScanConfig) {
-    let store = SyncStorage::default();
+    let path = TempDir::new("").unwrap();
+    let store = new_storage(path.path().to_str().unwrap());
     let max_ts = prepare_scan_data(&store, input);
     let mut start_key = vec![];
     for _ in 0..200 {
