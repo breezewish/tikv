@@ -111,9 +111,7 @@ impl SyncStorage {
     ) -> Result<Vec<Result<KvPair>>> {
         let mut opt = Options::new(0, false, key_only);
         opt.reverse_scan = true;
-        self.store
-            .async_scan(ctx, key, limit, start_ts, opt)
-            .wait()
+        self.store.async_scan(ctx, key, limit, start_ts, opt).wait()
     }
 
     pub fn prewrite(

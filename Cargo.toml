@@ -34,7 +34,12 @@ name = "tikv-fail"
 [[bin]]
 name = "tikv-importer"
 
+[[bench]]
+name = "storage_scan"
+harness = false
+
 [dependencies]
+criterion = "0.2"
 log = "0.3"
 byteorder = "0.5"
 rand = "0.5"

@@ -677,15 +677,13 @@ impl Storage {
                     thread_ctx.collect_scan_count(CMD, statistics);
                     thread_ctx.collect_read_flow(ctx.get_region_id(), statistics);
 
-                    res
-                        .map_err(Error::from)
-                        .map(|results| {
-                            thread_ctx.collect_key_reads(CMD, results.len() as u64);
-                            results
-                                .into_iter()
-                                .map(|x| x.map_err(Error::from))
-                                .collect()
-                        })
+                    res.map_err(Error::from).map(|results| {
+                        thread_ctx.collect_key_reads(CMD, results.len() as u64);
+                        results
+                            .into_iter()
+                            .map(|x| x.map_err(Error::from))
+                            .collect()
+                    })
                 })
                 .then(move |r| {
                     _timer.observe_duration();
