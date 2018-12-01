@@ -271,6 +271,7 @@ fn run_raft_server(pd_client: RpcClient, cfg: &TiKvConfig, security_mgr: Arc<Sec
         let _ = lab_client_scheduler.schedule(::tikv::lab::Report::TiKVStopped {
             tikv_id: node.id() as u32,
         });
+        ::std::thread::sleep(Duration::from_secs(1));
     }
 
     metrics_flusher.stop();
