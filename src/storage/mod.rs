@@ -76,7 +76,7 @@ pub fn is_short_value(value: &[u8]) -> bool {
     value.len() <= SHORT_VALUE_MAX_LEN
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub enum Mutation {
     Put((Key, Value)),
     Delete(Key),

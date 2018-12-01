@@ -31,7 +31,6 @@ use server::metrics::*;
 use server::snap::Task as SnapTask;
 use server::transport::RaftStoreRouter;
 use server::Error;
-use std::str;
 use storage::engine::Error as EngineError;
 use storage::mvcc::{Error as MvccError, LockType, Write as MvccWrite, WriteType};
 use storage::txn::Error as TxnError;
@@ -106,7 +105,7 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
                 }
                 Ok(resp)
             })
-            .and_then(move |res| sink.success(res).map_err(Error::from))
+            .and_then(|res| sink.success(res).map_err(Error::from))
             .map(|_| timer.observe_duration())
             .map_err(move |e| {
                 debug!("{} failed: {:?}", "kv_get", e);
@@ -166,7 +165,7 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
     ) {
         let timer = GRPC_MSG_HISTOGRAM_VEC.kv_prewrite.start_coarse_timer();
 
-        let mutations: Vec<Mutation> = req
+        let mutations = req
             .take_mutations()
             .into_iter()
             .map(|mut x| match x.get_op() {
@@ -183,7 +182,7 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
         let (cb, f) = paired_future_callback();
         let res = self.storage.async_prewrite(
             req.take_context(),
-            mutations.clone(),
+            mutations,
             req.take_primary_lock(),
             req.get_start_version(),
             options,
@@ -191,7 +190,7 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
         );
 
         let future = AndThenWith::new(res, f.map_err(Error::from))
-            .and_then(move |v| {
+            .and_then(|v| {
                 let mut resp = PrewriteResponse::new();
                 if let Some(err) = extract_region_error(&v) {
                     resp.set_region_error(err);
@@ -229,7 +228,7 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
         );
 
         let future = AndThenWith::new(res, f.map_err(Error::from))
-            .and_then(move |v| {
+            .and_then(|v| {
                 let mut resp = CommitResponse::new();
                 if let Some(err) = extract_region_error(&v) {
                     resp.set_region_error(err);
@@ -869,9 +868,9 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
 
         let future = self
             .cop
-            .parse_and_handle_unary_request(req.clone(), Some(ctx.peer()))
+            .parse_and_handle_unary_request(req, Some(ctx.peer()))
             .map_err(|_| unreachable!())
-            .and_then(move |res| sink.success(res).map_err(Error::from))
+            .and_then(|res| sink.success(res).map_err(Error::from))
             .map(|_| timer.observe_duration())
             .map_err(move |e| {
                 debug!("{} failed: {:?}", "coprocessor", e);

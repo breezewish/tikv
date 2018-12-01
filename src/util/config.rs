@@ -585,6 +585,8 @@ pub fn check_max_open_fds(expect: u64) -> Result<(), ConfigError> {
         if fd_limit.rlim_cur >= expect {
             return Ok(());
         }
+
+        let prev_limit = fd_limit.rlim_cur;
         fd_limit.rlim_cur = expect;
         if fd_limit.rlim_max < expect {
             // If the process is not started by privileged user, this will fail.
@@ -594,7 +596,11 @@ pub fn check_max_open_fds(expect: u64) -> Result<(), ConfigError> {
         if err == 0 {
             return Ok(());
         }
-        Ok(())
+        Err(ConfigError::Limit(format!(
+            "the maximum number of open file descriptors is too \
+             small, got {}, expect greater or equal to {}",
+            prev_limit, expect
+        )))
     }
 }
 
