@@ -12,33 +12,31 @@
 // limitations under the License.
 
 use hyper;
+use hyper::http::header::HeaderValue;
 use hyper::rt::Future;
 use hyper::Client;
 use hyper::{Body, Method, Request};
-use serde_json;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use storage::Mutation;
 use tokio_core::reactor::Handle;
 use util::worker::FutureRunnable;
+use util::worker::FutureScheduler;
 use util::worker::FutureWorker;
-use hyper::http::header::HeaderValue;
-use serde::Serialize;
-use serde::Serializer;
 
 #[derive(Deserialize, Debug)]
 pub enum Report {
-    TiKVStarted{tikv_id: u32, addr: String},
-    TiKVStopped{tikv_id: u32, addr: String},
+    TiKVStarted { tikv_id: u32, addr: String },
+    TiKVStopped { tikv_id: u32 },
 }
 
 impl Report {
-    fn jsonify(&self) -> String
-    {
+    fn jsonify(&self) -> String {
         match *self {
-            Report::TiKVStarted{tikv_id, ref addr} => format!("{{\"tikv_id\": {}, \"addr\": \"{}\"}}", tikv_id, addr),
-            Report::TiKVStopped{tikv_id, ref addr} => format!("{{\"tikv_id\": {}, \"addr\": \"{}\"}}", tikv_id, addr),
+            Report::TiKVStarted { tikv_id, ref addr } => {
+                format!("{{\"tikv_id\": {}, \"addr\": \"{}\"}}", tikv_id, addr)
+            }
+            Report::TiKVStopped { tikv_id } => format!("{{\"tikv_id\": {}}}", tikv_id),
         }
     }
 }
@@ -46,8 +44,8 @@ impl Report {
 impl Report {
     fn event_name(&self) -> String {
         match *self {
-            Report::TiKVStarted{..} => "TiKVStarted".to_string(),
-            Report::TiKVStopped{..} => "TiKVStopped".to_string(),
+            Report::TiKVStarted { .. } => "TiKVStarted".to_string(),
+            Report::TiKVStopped { .. } => "TiKVStopped".to_string(),
         }
     }
 }
@@ -61,14 +59,17 @@ impl Display for Report {
 // A client send request to the lab server
 
 pub struct LabClient {
-    pub worker: FutureWorker<Report>,
+    addr: String,
+    worker: FutureWorker<Report>,
 }
 
-pub struct Runner {}
+pub struct Runner {
+    addr: String,
+}
 
 impl Runner {
-    pub fn new() -> Runner {
-        Runner {}
+    pub fn new(addr: String) -> Runner {
+        Runner { addr }
     }
 }
 
@@ -76,17 +77,13 @@ impl FutureRunnable<Report> for Runner {
     fn run(&mut self, report: Report, handle: &Handle) {
         let client = Client::new();
 
-        let uri: hyper::Uri = format!("{}", "http://192.168.198.207:12510/event").parse().unwrap();
+        let uri: hyper::Uri = format!("http://{}/event", self.addr).parse().unwrap();
 
         let serialized = format!(
-            "{}{}{}{}{}",
-            "{\"event_name\": \"".to_string(),
-            report.event_name().to_string(),
-            "\",\"payload\": ".to_string(),
+            "{{\"event_name\": \"{}\", \"payload\": {}}}",
+            report.event_name(),
             report.jsonify(),
-            "}".to_string(),
         );
-        println!("serialized = {}", serialized);
 
         let mut req = Request::new(Body::from(serialized));
 
@@ -94,7 +91,7 @@ impl FutureRunnable<Report> for Runner {
         *req.uri_mut() = uri.clone();
         req.headers_mut().insert(
             hyper::header::CONTENT_TYPE,
-            HeaderValue::from_static("application/json")
+            HeaderValue::from_static("application/json"),
         );
 
         let f = client
@@ -102,7 +99,6 @@ impl FutureRunnable<Report> for Runner {
             .and_then(|res| {
                 println!("Response: {}", res.status());
                 println!("Headers: {:#?}", res.headers());
-
                 Ok(res)
             })
             .map(|_| {
@@ -117,17 +113,15 @@ impl FutureRunnable<Report> for Runner {
 }
 
 impl LabClient {
-    pub fn new() -> LabClient {
+    pub fn new(addr: String) -> LabClient {
         info!("Create Lab Client for Lab Servre");
         let worker = FutureWorker::new("Lab Client");
-
-        LabClient { worker }
+        LabClient { addr, worker }
     }
 
-    pub fn start(&mut self) -> () {
-        let runner = Runner::new();
-        self.worker.start(runner);
-
-        ()
+    pub fn start(&mut self) -> FutureScheduler<Report> {
+        let runner = Runner::new(self.addr.clone());
+        self.worker.start(runner).unwrap();
+        self.worker.scheduler()
     }
 }

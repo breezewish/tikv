@@ -59,7 +59,6 @@ use fs2::FileExt;
 use tikv::config::{check_and_persist_critical_config, TiKvConfig};
 use tikv::coprocessor;
 use tikv::import::{ImportSSTService, SSTImporter};
-use tikv::lab::{labClient, Report};
 use tikv::pd::{PdClient, RpcClient};
 use tikv::raftstore::coprocessor::CoprocessorHost;
 use tikv::raftstore::store::{self, new_compaction_listener, Engines, SnapManagerBuilder};
@@ -245,11 +244,17 @@ fn run_raft_server(pd_client: RpcClient, cfg: &TiKvConfig, security_mgr: Arc<Sec
         error!("failed to start metrics flusher, error: {:?}", e);
     }
 
-    let addr = server_cfg.addr.clone();
-    labClient
-        .worker
-        .scheduler()
-        .schedule(Report::TiKVStarted{tikv_id: node.id() as u32, addr: addr.clone()});
+    let mut lab_client_scheduler = None;
+    if !server_cfg.lab_addr.is_empty() {
+        let mut c = ::tikv::lab::LabClient::new(server_cfg.lab_addr.clone());
+        lab_client_scheduler = Some(c.start());
+    }
+    if let Some(lab_client_scheduler) = &lab_client_scheduler {
+        let _ = lab_client_scheduler.schedule(::tikv::lab::Report::TiKVStarted {
+            tikv_id: node.id() as u32,
+            addr: server_cfg.addr.clone(),
+        });
+    }
 
     server
         .start(server_cfg, security_mgr)
@@ -261,10 +266,13 @@ fn run_raft_server(pd_client: RpcClient, cfg: &TiKvConfig, security_mgr: Arc<Sec
     server
         .stop()
         .unwrap_or_else(|e| fatal!("failed to stop server: {:?}", e));
-    labClient
-        .worker
-        .scheduler()
-        .schedule(Report::TiKVStopped{tikv_id: node.id() as u32, addr: addr});
+
+    if let Some(lab_client_scheduler) = &lab_client_scheduler {
+        let _ = lab_client_scheduler.schedule(::tikv::lab::Report::TiKVStopped {
+            tikv_id: node.id() as u32,
+        });
+    }
+
     metrics_flusher.stop();
 
     node.stop()
@@ -374,11 +382,6 @@ fn main() {
                 .long("print-sample-config")
                 .help("Print a sample config to stdout"),
         )
-        .arg(
-            Arg::with_name("ip-addr")
-                .long("ip-addr")
-                .help("Wow")
-        )
         .get_matches();
 
     if matches.is_present("print-sample-config") {
@@ -392,8 +395,6 @@ fn main() {
         .map_or_else(TiKvConfig::default, |path| TiKvConfig::from_file(&path));
 
     overwrite_config_with_cmd_args(&mut config, &matches);
-
-    matches.value_of("ip-addr");
 
     if let Err(e) = check_and_persist_critical_config(&config) {
         fatal!("check critical config failed, error {:?}", e);

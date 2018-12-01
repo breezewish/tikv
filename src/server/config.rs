@@ -59,6 +59,9 @@ pub struct Config {
     // Server listening address.
     pub addr: String,
 
+    // Lab address.
+    pub lab_addr: String,
+
     // Server advertise listening address for outer communication.
     // If not set, we will use listening address instead.
     pub advertise_addr: String,
@@ -107,6 +110,7 @@ impl Default for Config {
         Config {
             cluster_id: DEFAULT_CLUSTER_ID,
             addr: DEFAULT_LISTENING_ADDR.to_owned(),
+            lab_addr: "".to_owned(),
             labels: HashMap::default(),
             advertise_addr: DEFAULT_ADVERTISE_LISTENING_ADDR.to_owned(),
             grpc_compression_type: GrpcCompressionType::None,

@@ -26,7 +26,6 @@ use protobuf::RepeatedField;
 use std::iter::{self, FromIterator};
 
 use coprocessor::Endpoint;
-use lab::{labClient, Report};
 use raftstore::store::{Callback, Msg as StoreMessage};
 use server::metrics::*;
 use server::snap::Task as SnapTask;
@@ -107,9 +106,7 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
                 }
                 Ok(resp)
             })
-            .and_then(move |res| {
-                sink.success(res).map_err(Error::from)
-            })
+            .and_then(move |res| sink.success(res).map_err(Error::from))
             .map(|_| timer.observe_duration())
             .map_err(move |e| {
                 debug!("{} failed: {:?}", "kv_get", e);
@@ -201,9 +198,6 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
                 } else {
                     resp.set_errors(RepeatedField::from_vec(extract_key_errors(v)));
                 }
-
-                let txn_id = format!("{:X}", req.start_version);
-
                 sink.success(resp).map_err(Error::from)
             })
             .map(|_| timer.observe_duration())
@@ -877,9 +871,7 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
             .cop
             .parse_and_handle_unary_request(req.clone(), Some(ctx.peer()))
             .map_err(|_| unreachable!())
-            .and_then(move |res| {
-                sink.success(res).map_err(Error::from)
-            })
+            .and_then(move |res| sink.success(res).map_err(Error::from))
             .map(|_| timer.observe_duration())
             .map_err(move |e| {
                 debug!("{} failed: {:?}", "coprocessor", e);
@@ -1185,11 +1177,6 @@ fn extract_key_error(err: &storage::Error) -> KeyError {
         }
     }
     key_error
-}
-
-fn to_hex_string(bytes: &[u8]) -> String {
-    let strs: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
-    strs.join("")
 }
 
 fn extract_kv_pairs(res: storage::Result<Vec<storage::Result<storage::KvPair>>>) -> Vec<KvPair> {
