@@ -34,6 +34,7 @@
 
 extern crate alloc;
 extern crate backtrace;
+extern crate hyper;
 #[macro_use]
 extern crate bitflags;
 extern crate byteorder;
@@ -127,6 +128,7 @@ pub mod util;
 pub mod config;
 pub mod coprocessor;
 pub mod import;
+pub mod lab;
 pub mod pd;
 pub mod raftstore;
 pub mod server;

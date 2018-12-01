@@ -26,11 +26,13 @@ use protobuf::RepeatedField;
 use std::iter::{self, FromIterator};
 
 use coprocessor::Endpoint;
+use lab::{labClient, Report};
 use raftstore::store::{Callback, Msg as StoreMessage};
 use server::metrics::*;
 use server::snap::Task as SnapTask;
 use server::transport::RaftStoreRouter;
 use server::Error;
+use std::str;
 use storage::engine::Error as EngineError;
 use storage::mvcc::{Error as MvccError, LockType, Write as MvccWrite, WriteType};
 use storage::txn::Error as TxnError;
@@ -105,7 +107,9 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
                 }
                 Ok(resp)
             })
-            .and_then(|res| sink.success(res).map_err(Error::from))
+            .and_then(move |res| {
+                sink.success(res).map_err(Error::from)
+            })
             .map(|_| timer.observe_duration())
             .map_err(move |e| {
                 debug!("{} failed: {:?}", "kv_get", e);
@@ -165,7 +169,7 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
     ) {
         let timer = GRPC_MSG_HISTOGRAM_VEC.kv_prewrite.start_coarse_timer();
 
-        let mutations = req
+        let mutations: Vec<Mutation> = req
             .take_mutations()
             .into_iter()
             .map(|mut x| match x.get_op() {
@@ -182,7 +186,7 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
         let (cb, f) = paired_future_callback();
         let res = self.storage.async_prewrite(
             req.take_context(),
-            mutations,
+            mutations.clone(),
             req.take_primary_lock(),
             req.get_start_version(),
             options,
@@ -190,13 +194,16 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
         );
 
         let future = AndThenWith::new(res, f.map_err(Error::from))
-            .and_then(|v| {
+            .and_then(move |v| {
                 let mut resp = PrewriteResponse::new();
                 if let Some(err) = extract_region_error(&v) {
                     resp.set_region_error(err);
                 } else {
                     resp.set_errors(RepeatedField::from_vec(extract_key_errors(v)));
                 }
+
+                let txn_id = format!("{:X}", req.start_version);
+
                 sink.success(resp).map_err(Error::from)
             })
             .map(|_| timer.observe_duration())
@@ -228,13 +235,14 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
         );
 
         let future = AndThenWith::new(res, f.map_err(Error::from))
-            .and_then(|v| {
+            .and_then(move |v| {
                 let mut resp = CommitResponse::new();
                 if let Some(err) = extract_region_error(&v) {
                     resp.set_region_error(err);
                 } else if let Err(e) = v {
                     resp.set_error(extract_key_error(&e));
                 }
+
                 sink.success(resp).map_err(Error::from)
             })
             .map(|_| timer.observe_duration())
@@ -867,9 +875,11 @@ impl<T: RaftStoreRouter + 'static, E: Engine> tikvpb_grpc::Tikv for Service<T, E
 
         let future = self
             .cop
-            .parse_and_handle_unary_request(req, Some(ctx.peer()))
+            .parse_and_handle_unary_request(req.clone(), Some(ctx.peer()))
             .map_err(|_| unreachable!())
-            .and_then(|res| sink.success(res).map_err(Error::from))
+            .and_then(move |res| {
+                sink.success(res).map_err(Error::from)
+            })
             .map(|_| timer.observe_duration())
             .map_err(move |e| {
                 debug!("{} failed: {:?}", "coprocessor", e);
@@ -1175,6 +1185,11 @@ fn extract_key_error(err: &storage::Error) -> KeyError {
         }
     }
     key_error
+}
+
+fn to_hex_string(bytes: &[u8]) -> String {
+    let strs: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
+    strs.join("")
 }
 
 fn extract_kv_pairs(res: storage::Result<Vec<storage::Result<storage::KvPair>>>) -> Vec<KvPair> {
