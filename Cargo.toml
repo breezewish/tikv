@@ -83,6 +83,7 @@ indexmap = { version = "1.0", features = ["serde-1"] }
 futures = "0.1"
 futures-cpupool = "0.1"
 tikv_alloc = { path = "components/tikv_alloc" }
+tikv_log = { path = "components/tikv_log" }
 tokio = "0.1"
 tokio-core = "0.1"
 tokio-timer = "0.2"
@@ -156,6 +157,7 @@ members = [
   "components/test_coprocessor",
   "components/test_util",
   "components/tikv_alloc",
+  "components/tikv_log",
   "components/codec",
   "components/panic_hook",
   "components/cop_datatype",
