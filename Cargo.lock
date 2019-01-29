@@ -261,7 +261,7 @@ dependencies = [
  "protobuf 2.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "quick-error 1.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "tikv_alloc 0.1.0",
+ "tikv_alloc 0.0.1",
 ]
 
 [[package]]
@@ -281,7 +281,7 @@ dependencies = [
  "enum-primitive-derive 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-traits 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "tikv_alloc 0.1.0",
+ "tikv_alloc 0.0.1",
  "tipb 0.0.1",
 ]
 
@@ -1692,18 +1692,7 @@ dependencies = [
 [[package]]
 name = "slog-global"
 version = "0.1.0"
-source = "git+https://github.com/breeswish/slog-global.git?branch=extern_use#14619687c12bc0c7ed6106dfd56003e9fc26c697"
-dependencies = [
- "arc-swap 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
- "slog 2.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "slog-global"
-version = "0.1.0"
-source = "git+https://github.com/breeswish/slog-global.git?rev=91904ade#91904adec6e602df234e30560e98ef281d81eb84"
+source = "git+https://github.com/breeswish/slog-global.git?rev=0692aee#0692aee00281f5a5e12600529e658aa143c29320"
 dependencies = [
  "arc-swap 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1902,9 +1891,9 @@ dependencies = [
  "rand 0.3.14 (registry+https://github.com/rust-lang/crates.io-index)",
  "rocksdb 0.3.0 (git+https://github.com/pingcap/rust-rocksdb.git)",
  "slog 2.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "slog-global 0.1.0 (git+https://github.com/breeswish/slog-global.git?rev=91904ade)",
  "tempdir 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "tikv 3.0.0-beta",
+ "tikv_log 0.0.1",
  "tokio 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-timer 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1926,6 +1915,8 @@ dependencies = [
  "rand 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "slog 2.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "tikv 3.0.0-beta",
+ "tikv_log 0.0.1",
+ "tikv_logger 0.0.1",
  "time 0.1.38 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1981,7 +1972,6 @@ dependencies = [
  "kvproto 0.0.1",
  "lazy_static 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.45 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "log_wrappers 0.0.1",
  "more-asserts 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "murmur3 0.4.0 (git+https://github.com/pingcap/murmur3.git)",
@@ -2004,9 +1994,6 @@ dependencies = [
  "serde_json 1.0.26 (registry+https://github.com/rust-lang/crates.io-index)",
  "signal 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "slog 2.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "slog-async 2.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "slog-global 0.1.0 (git+https://github.com/breeswish/slog-global.git?rev=91904ade)",
- "slog-term 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "slog_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "smallvec 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "sys-info 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2015,8 +2002,9 @@ dependencies = [
  "test_raftstore 0.0.1",
  "test_storage 0.0.1",
  "test_util 0.0.1",
- "tikv_alloc 0.1.0",
- "tikv_log 0.1.0",
+ "tikv_alloc 0.0.1",
+ "tikv_log 0.0.1",
+ "tikv_logger 0.0.1",
  "time 0.1.38 (registry+https://github.com/rust-lang/crates.io-index)",
  "tipb 0.0.1",
  "tokio 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2034,7 +2022,7 @@ dependencies = [
 
 [[package]]
 name = "tikv_alloc"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "jemallocator 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.45 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2044,12 +2032,28 @@ dependencies = [
 
 [[package]]
 name = "tikv_log"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "slog 2.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "slog-global 0.1.0 (git+https://github.com/breeswish/slog-global.git?branch=extern_use)",
+ "slog-global 0.1.0 (git+https://github.com/breeswish/slog-global.git?rev=0692aee)",
+]
+
+[[package]]
+name = "tikv_logger"
+version = "0.0.1"
+dependencies = [
+ "chrono 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "panic_hook 0.0.1",
+ "regex 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.26 (registry+https://github.com/rust-lang/crates.io-index)",
+ "slog 2.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "slog-async 2.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "slog-term 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tempdir 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tikv_log 0.0.1",
+ "utime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2644,8 +2648,7 @@ dependencies = [
 "checksum slab 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "5f9776d6b986f77b35c6cf846c11ad986ff128fe0b2b63a3628e3755e8d3102d"
 "checksum slog 2.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "1e1a2eec401952cd7b12a84ea120e2d57281329940c3f93c2bf04f462539508e"
 "checksum slog-async 2.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e544d16c6b230d84c866662fe55e31aacfca6ae71e6fc49ae9a311cb379bfc2f"
-"checksum slog-global 0.1.0 (git+https://github.com/breeswish/slog-global.git?branch=extern_use)" = "<none>"
-"checksum slog-global 0.1.0 (git+https://github.com/breeswish/slog-global.git?rev=91904ade)" = "<none>"
+"checksum slog-global 0.1.0 (git+https://github.com/breeswish/slog-global.git?rev=0692aee)" = "<none>"
 "checksum slog-term 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5951a808c40f419922ee014c15b6ae1cd34d963538b57d8a4778b9ca3fff1e0b"
 "checksum slog_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "9eff3b513cf2e0d1a60e1aba152dc72bedc5b05585722bb3cebd7bcb1e31b98f"
 "checksum smallvec 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)" = "153ffa32fd170e9944f7e0838edf824a754ec4c1fc64746fcc9fe1f8fa602e5d"

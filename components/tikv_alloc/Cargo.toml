@@ -1,6 +1,6 @@
 [package]
 name = "tikv_alloc"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Brian Anderson <andersrb@gmail.com>"]
 publish = false
 

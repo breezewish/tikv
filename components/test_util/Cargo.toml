@@ -5,6 +5,8 @@ publish = false
 
 [dependencies]
 tikv = { path = "../../" }
+tikv_log = { path = "../tikv_log" }
+tikv_logger = { path = "../tikv_logger" }
 time = "0.1"
 rand = "0.5"
-slog = { version = "2.3", features = ["max_level_trace", "release_max_level_debug"] }
+slog = "2.4"

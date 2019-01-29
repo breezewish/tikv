@@ -53,11 +53,7 @@ path = "benches/misc/mod.rs"
 
 [dependencies]
 hashbrown = { version = "0.1", features = ["serde"] }
-log = { version = "0.3", features = ["max_level_trace", "release_max_level_debug"] }
-slog = { version = "2.3", features = ["max_level_trace", "release_max_level_debug"] }
-slog-async = "2.3"
-slog-global = { version = "0.1", git = "https://github.com/breeswish/slog-global.git", rev = "91904ade" }
-slog-term = "2.4"
+slog = "2.4"
 slog_derive = "0.1"
 byteorder = "1.2"
 rand = "0.3"
@@ -85,6 +81,7 @@ futures = "0.1"
 futures-cpupool = "0.1"
 tikv_alloc = { path = "components/tikv_alloc" }
 tikv_log = { path = "components/tikv_log" }
+tikv_logger = { path = "components/tikv_logger" }
 tokio = "0.1"
 tokio-core = "0.1"
 tokio-timer = "0.2"
@@ -156,6 +153,7 @@ members = [
   "components/test_util",
   "components/tikv_alloc",
   "components/tikv_log",
+  "components/tikv_logger",
   "components/codec",
   "components/panic_hook",
   "components/cop_datatype",

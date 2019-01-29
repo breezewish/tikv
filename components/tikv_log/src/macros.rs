@@ -11,56 +11,53 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// We use `slog-global` provided by this crate, so that users don't need to introduce `slog-global`
+// any more in `extern crate`s and `Cargo.toml`.
+
 /// Logs a critical level message.
 #[macro_export]
 macro_rules! crit( ($($args:tt)+) => {
-    let level = slog::Level::Critical.as_usize();
-    if level <= slog::__slog_static_max_level().as_usize() && level <= $crate::max_level_usize() {
-        ::slog_global::crit!($($args)+)
+    if $crate::is_level_enabled(::slog::Level::Critical) {
+        $crate::slog_global::crit!($($args)+)
     }
 };);
 
 /// Logs a error level message.
 #[macro_export]
 macro_rules! error( ($($args:tt)+) => {
-    let level = slog::Level::Error.as_usize();
-    if level <= slog::__slog_static_max_level().as_usize() && level <= $crate::max_level_usize() {
-        ::slog_global::error!($($args)+)
+    if $crate::is_level_enabled(::slog::Level::Error) {
+        $crate::slog_global::error!($($args)+)
     }
 };);
 
 /// Logs a warning level message.
 #[macro_export]
 macro_rules! warn( ($($args:tt)+) => {
-    let level = slog::Level::Warning.as_usize();
-    if level <= slog::__slog_static_max_level().as_usize() && level <= $crate::max_level_usize() {
-        ::slog_global::warn!($($args)+)
+    if $crate::is_level_enabled(::slog::Level::Warning) {
+        $crate::slog_global::warn!($($args)+)
     }
 };);
 
 /// Logs a info level message.
 #[macro_export]
 macro_rules! info( ($($args:tt)+) => {
-    let level = slog::Level::Info.as_usize();
-    if level <= slog::__slog_static_max_level().as_usize() && level <= $crate::max_level_usize() {
-        ::slog_global::info!($($args)+)
+    if $crate::is_level_enabled(::slog::Level::Info) {
+        $crate::slog_global::info!($($args)+)
     }
 };);
 
 /// Logs a debug level message.
 #[macro_export]
 macro_rules! debug( ($($args:tt)+) => {
-    let level = slog::Level::Debug.as_usize();
-    if level <= slog::__slog_static_max_level().as_usize() && level <= $crate::max_level_usize() {
-        ::slog_global::debug!($($args)+)
+    if $crate::is_level_enabled(::slog::Level::Debug) {
+        $crate::slog_global::debug!($($args)+)
     }
 };);
 
 /// Logs a trace level message.
 #[macro_export]
 macro_rules! trace( ($($args:tt)+) => {
-    let level = slog::Level::Trace.as_usize();
-    if level <= slog::__slog_static_max_level().as_usize() && level <= $crate::max_level_usize() {
-        ::slog_global::trace!($($args)+)
+    if $crate::is_level_enabled(::slog::Level::Trace) {
+        $crate::slog_global::trace!($($args)+)
     }
 };);

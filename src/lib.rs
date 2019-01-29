@@ -56,7 +56,6 @@ extern crate kvproto;
 #[macro_use]
 extern crate lazy_static;
 extern crate libc;
-extern crate log;
 extern crate murmur3;
 extern crate num;
 extern crate num_traits;
@@ -74,11 +73,9 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate slog;
-extern crate slog_async;
 #[macro_use]
 extern crate slog_derive;
-extern crate slog_term;
+extern crate slog;
 extern crate sys_info;
 extern crate tempdir;
 #[cfg(test)]
@@ -86,6 +83,7 @@ extern crate test;
 extern crate tikv_alloc;
 #[macro_use]
 extern crate tikv_log;
+extern crate tikv_logger;
 extern crate time;
 extern crate tipb;
 extern crate tokio;

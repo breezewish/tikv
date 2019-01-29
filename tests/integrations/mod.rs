@@ -24,6 +24,7 @@ extern crate protobuf;
 extern crate raft;
 extern crate rand;
 extern crate rocksdb;
+extern crate slog;
 extern crate tempdir;
 extern crate test;
 extern crate tipb;
@@ -38,6 +39,8 @@ extern crate test_raftstore;
 extern crate test_storage;
 #[macro_use]
 extern crate test_util;
+#[macro_use]
+extern crate tikv_log;
 
 mod config;
 mod coprocessor;

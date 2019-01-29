@@ -27,10 +27,13 @@ extern crate rand;
 extern crate rocksdb;
 #[cfg(unix)]
 extern crate signal;
-extern crate slog_async;
-extern crate slog_term;
+extern crate slog;
 extern crate tikv;
 extern crate tikv_alloc;
+#[macro_use]
+extern crate tikv_log;
+#[macro_use]
+extern crate tikv_logger;
 extern crate toml;
 #[macro_use]
 extern crate vlog;

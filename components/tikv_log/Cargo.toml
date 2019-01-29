@@ -1,13 +1,10 @@
-cargo-features = ["rename-dependency"]
-
 [package]
 name = "tikv_log"
-version = "0.1.0"
+version = "0.0.1"
 publish = false
 
 [dependencies]
 lazy_static = { version = "1.2", features = ["nightly"] }
-log = { version = "0.4", features = ["max_level_trace", "release_max_level_debug"] }
-# log04 = { version = "0.4", features = ["max_level_trace", "release_max_level_debug"], package = "log" }
-slog = { version = "2.4", features = ["max_level_trace", "release_max_level_debug"] }
-slog-global = { version = "0.1", git = "https://github.com/breeswish/slog-global.git", branch = "extern_use" }
+slog = "2.4"
+slog-global = { version = "0.1", git = "https://github.com/breeswish/slog-global.git", rev = "0692aee" }
+

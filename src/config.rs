@@ -801,14 +801,13 @@ pub mod log_level_serde {
         Deserialize, Deserializer, Serialize, Serializer,
     };
     use slog::Level;
-    use util::logger::{get_level_by_string, get_string_by_level};
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Level, D::Error>
     where
         D: Deserializer<'de>,
     {
         let string = String::deserialize(deserializer)?;
-        get_level_by_string(&string)
+        ::tikv_log::util::full_string_to_level(&string)
             .ok_or_else(|| D::Error::invalid_value(Unexpected::Str(&string), &"a valid log level"))
     }
 
@@ -817,7 +816,7 @@ pub mod log_level_serde {
     where
         S: Serializer,
     {
-        get_string_by_level(*value).serialize(serializer)
+        ::tikv_log::util::level_to_full_string(*value).serialize(serializer)
     }
 }
 

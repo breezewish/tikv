@@ -1,0 +1,19 @@
+[package]
+name = "tikv_logger"
+version = "0.0.1"
+publish = false
+
+[dependencies]
+log = { version = "0.4", features = ["max_level_trace", "release_max_level_debug"] }
+slog = { version = "2.4", features = ["max_level_trace", "release_max_level_debug"] }
+slog-async = "2.3"
+slog-term = "2.4"
+serde_json = "1.0"
+chrono = "0.4"
+panic_hook = { path = "../panic_hook" }
+tikv_log = { path = "../tikv_log" }
+
+[dev-dependencies]
+tempdir = "0.3"
+utime = "0.2"
+regex = "1.1"

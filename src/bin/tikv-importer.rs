@@ -25,10 +25,13 @@ extern crate rocksdb;
 extern crate serde_json;
 #[cfg(unix)]
 extern crate signal;
-extern crate slog_async;
-extern crate slog_term;
+extern crate slog;
 extern crate tikv;
 extern crate tikv_alloc;
+#[macro_use]
+extern crate tikv_log;
+#[macro_use]
+extern crate tikv_logger;
 extern crate toml;
 
 #[cfg(unix)]
@@ -38,7 +41,6 @@ use util::setup::*;
 use util::signal_handler;
 
 use std::process;
-use std::sync::atomic::Ordering;
 
 use clap::{App, Arg, ArgMatches};
 
@@ -47,6 +49,8 @@ use tikv::import::ImportKVServer;
 use tikv::util::{self as tikv_util, check_environment_variables};
 
 fn main() {
+    ::tikv_logger::init();
+
     let matches = App::new("TiKV Importer")
         .long_version(util::tikv_version_info().as_ref())
         .author("TiKV Org.")
@@ -92,7 +96,7 @@ fn main() {
         .get_matches();
 
     let config = setup_config(&matches);
-    initial_logger(&config);
+    config_logger(&config);
     tikv_util::set_panic_hook(false, &config.storage.data_dir);
 
     initial_metric(&config.metric, None);

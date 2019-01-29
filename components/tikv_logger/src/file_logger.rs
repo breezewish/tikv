@@ -1,4 +1,4 @@
-// Copyright 2016 PingCAP, Inc.
+// Copyright 2019 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,10 +11,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use chrono::{DateTime, Duration, Utc};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+
+use chrono::{DateTime, Duration, Utc};
 
 /// Adds `Duration` to the initial date and time.
 fn compute_rotation_time(initial: &DateTime<Utc>, timespan: Duration) -> DateTime<Utc> {
@@ -136,7 +137,6 @@ mod tests {
 
     use chrono::{Duration, Utc};
     use tempdir::TempDir;
-    use utime;
 
     use super::{rotation_file_path_with_timestamp, RotatingFileLogger};
 
@@ -167,7 +167,7 @@ mod tests {
         let one_day = Duration::days(1);
         let one_day_ago = now - one_day;
         let one_day_ago_ts = one_day_ago.timestamp() as u64;
-        utime::set_file_times(&log_file, one_day_ago_ts, one_day_ago_ts).unwrap();
+        ::utime::set_file_times(&log_file, one_day_ago_ts, one_day_ago_ts).unwrap();
         // initialize the logger
         let mut logger = RotatingFileLogger::new(&log_file, one_day).unwrap();
         assert!(logger.should_rotate());

@@ -20,12 +20,15 @@ extern crate protobuf;
 extern crate raft;
 extern crate rand;
 extern crate rocksdb;
+extern crate slog;
 extern crate tempdir;
 extern crate tokio;
 extern crate tokio_timer;
 
 #[macro_use]
 extern crate tikv;
+#[macro_use]
+extern crate tikv_log;
 
 mod cluster;
 mod node;

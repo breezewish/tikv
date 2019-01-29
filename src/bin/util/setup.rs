@@ -12,55 +12,34 @@
 // limitations under the License.
 
 use std::process;
-use std::sync::atomic::{AtomicBool, Ordering, ATOMIC_BOOL_INIT};
 
-use chrono;
 use clap::ArgMatches;
 
 use tikv::config::{MetricConfig, TiKvConfig};
+use tikv::util;
 use tikv::util::collections::HashMap;
-use tikv::util::{self, logger};
 
-// A workaround for checking if log is initialized.
-pub static LOG_INITIALIZED: AtomicBool = ATOMIC_BOOL_INIT;
-
-macro_rules! fatal {
-    ($lvl:expr, $($arg:tt)+) => ({
-        if LOG_INITIALIZED.load(Ordering::SeqCst) {
-            error!($lvl, $($arg)+);
-        } else {
-            eprintln!($lvl, $($arg)+);
-        }
-        process::exit(1)
-    })
-}
-
+/// Creates and replaces current logger with the one constructed according to config.
 #[allow(dead_code)]
-pub fn initial_logger(config: &TiKvConfig) {
+pub fn config_logger(config: &TiKvConfig) {
     let log_rotation_timespan =
-        chrono::Duration::from_std(config.log_rotation_timespan.clone().into())
+        ::chrono::Duration::from_std(config.log_rotation_timespan.clone().into())
             .expect("config.log_rotation_timespan is an invalid duration.");
     if config.log_file.is_empty() {
-        let drainer = logger::term_drainer();
-        // use async drainer and init std log.
-        logger::init_log(drainer, config.log_level, true, true).unwrap_or_else(|e| {
-            fatal!("failed to initialize log: {:?}", e);
-        });
+        let drainer = ::tikv_logger::build_stderr_drainer();
+        ::tikv_logger::use_drainer_async(drainer);
     } else {
-        let drainer =
-            logger::file_drainer(&config.log_file, log_rotation_timespan).unwrap_or_else(|e| {
+        let drainer = ::tikv_logger::build_file_drainer(&config.log_file, log_rotation_timespan)
+            .unwrap_or_else(|e| {
                 fatal!(
                     "failed to initialize log with file {:?}: {:?}",
                     config.log_file,
                     e
                 );
             });
-        // use async drainer and init std log.
-        logger::init_log(drainer, config.log_level, true, true).unwrap_or_else(|e| {
-            fatal!("failed to initialize log: {:?}", e);
-        });
+        ::tikv_logger::use_drainer_async(drainer);
+        // FIXME: What about grpc?
     };
-    LOG_INITIALIZED.store(true, Ordering::SeqCst);
 }
 
 #[allow(dead_code)]
@@ -84,7 +63,7 @@ pub fn initial_metric(cfg: &MetricConfig, node_id: Option<u64>) {
 #[allow(dead_code)]
 pub fn overwrite_config_with_cmd_args(config: &mut TiKvConfig, matches: &ArgMatches) {
     if let Some(level) = matches.value_of("log-level") {
-        config.log_level = logger::get_level_by_string(level).unwrap();
+        config.log_level = ::tikv_log::util::full_string_to_level(level).unwrap();
     }
 
     if let Some(file) = matches.value_of("log-file") {

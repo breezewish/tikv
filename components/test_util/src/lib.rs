@@ -20,6 +20,8 @@ extern crate slog;
 extern crate time;
 
 extern crate tikv;
+extern crate tikv_log;
+extern crate tikv_logger;
 
 mod kv_generator;
 mod logging;

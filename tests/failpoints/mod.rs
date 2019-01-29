@@ -20,6 +20,7 @@ extern crate futures;
 extern crate grpcio;
 extern crate kvproto;
 extern crate raft;
+extern crate slog;
 #[macro_use]
 extern crate lazy_static;
 
@@ -29,6 +30,8 @@ extern crate test_raftstore;
 extern crate test_storage;
 extern crate test_util;
 extern crate tikv;
+#[macro_use]
+extern crate tikv_log;
 
 #[cfg(not(feature = "no-fail"))]
 mod cases;

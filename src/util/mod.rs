@@ -33,7 +33,6 @@ pub mod file;
 pub mod future;
 pub mod futurepool;
 pub mod io_limiter;
-pub mod logger;
 pub mod metrics;
 pub mod mpsc;
 pub mod rocksdb;
@@ -460,8 +459,7 @@ pub fn set_panic_hook(panic_abort: bool, data_dir: &str) {
     let data_dir = data_dir.to_string();
     let orig_hook = panic::take_hook();
     panic::set_hook(box move |info: &panic::PanicInfo| {
-        use slog::Drain;
-        if ::slog_global::borrow_global().is_enabled(::slog::Level::Error) {
+        if ::tikv_log::is_level_enabled(::slog::Level::Error) {
             let msg = match info.payload().downcast_ref::<&'static str>() {
                 Some(s) => *s,
                 None => match info.payload().downcast_ref::<String>() {
@@ -488,16 +486,9 @@ pub fn set_panic_hook(panic_abort: bool, data_dir: &str) {
 
         // There might be remaining logs in the async logger.
         // To collect remaining logs and also collect future logs, replace the old one with a
-        // terminal logger.
-        if let Some(level) = ::log::max_log_level().to_log_level() {
-            let drainer = logger::term_drainer();
-            let _ = logger::init_log(
-                drainer,
-                logger::convert_log_level_to_slog_level(level),
-                false, // Use sync logger to avoid an unnecessary log thread.
-                false, // It is initialized already.
-            );
-        }
+        // sync terminal logger.
+        let drainer = ::tikv_logger::build_stderr_drainer();
+        ::tikv_logger::use_drainer_sync(drainer);
 
         // If PANIC_MARK is true, create panic mark file.
         if panic_mark_is_on() {

@@ -68,10 +68,6 @@ impl Drop for CaseTraceLogger {
 // A help function to initial logger.
 pub fn init_log_for_test() {
     let output = env::var("LOG_FILE").ok();
-    let level = tikv::util::logger::get_level_by_string(
-        &env::var("LOG_LEVEL").unwrap_or_else(|_| "debug".to_owned()),
-    )
-    .unwrap();
     let writer = output.map(|f| Mutex::new(File::create(f).unwrap()));
     // we don't mind set it multiple times.
     let drain = CaseTraceLogger { f: writer };
@@ -93,15 +89,19 @@ pub fn init_log_for_test() {
             .any(|target| record.module().starts_with(target))
     });
 
-    // CaseTraceLogger relies on test's thread name, however slog_async has
-    // its own thread, and the name is "".
+    // CaseTraceLogger relies on test's thread name.
     // TODO: Enable the slog_async when the [Custom test frameworks][1] is mature,
     //       and hook the slog_async logger to every test cases.
     //
     // [1]: https://github.com/rust-lang/rfcs/blob/master/text/2318-custom-test-frameworks.md
-    tikv::util::logger::init_log(
-        filtered, level, false, // disable async drainer
-        true,  // init std log
-    )
-    .unwrap()
+
+    tikv_logger::init();
+    tikv_logger::use_drainer_sync(filtered);
+
+    let filter_level = {
+        let level_str = env::var("LOG_LEVEL").unwrap_or_else(|_| "debug".to_owned());
+        let level = ::tikv_log::util::full_string_to_level(&level_str).unwrap();
+        ::slog::FilterLevel::from_usize(level.as_usize()).unwrap()
+    };
+    tikv_logger::set_filter_level(filter_level);
 }
