@@ -124,8 +124,8 @@ fn setup_config(matches: &ArgMatches) -> TiKvConfig {
         fatal!("invalid configuration: {:?}", e);
     }
     info!(
-        "using config: {}",
-        serde_json::to_string_pretty(&config).unwrap()
+        "using config";
+        "config" => serde_json::to_string(&config).unwrap(),
     );
 
     config

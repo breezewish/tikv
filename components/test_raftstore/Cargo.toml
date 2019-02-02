@@ -4,9 +4,10 @@ version = "0.0.1"
 publish = false
 
 [dependencies]
-tikv = { path = "../../" }
+tikv = { path = "../.." }
 tikv_log = { path = "../tikv_log" }
-kvproto = { path = "../kvproto" }
+kvproto = { git = "https://github.com/pingcap/kvproto.git" }
+rocksdb = { git = "https://github.com/pingcap/rust-rocksdb.git" }
 protobuf = "~2.0"
 tempdir = "0.3"
 raft = "0.4"
@@ -16,6 +17,3 @@ tokio = "0.1"
 grpcio = { version = "0.4", features = [ "secure" ] }
 rand = "0.3"
 slog = "2.4"
-
-[dependencies.rocksdb]
-git = "https://github.com/pingcap/rust-rocksdb.git"
