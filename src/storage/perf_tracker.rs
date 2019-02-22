@@ -28,6 +28,7 @@ pub struct PerfTracker {
 
 impl PerfTracker {
     pub fn new(cmd: &'static str, slow_log_threshold: Duration) -> Self {
+        rocksdb::set_perf_level(::rocksdb::PerfLevel::EnableTime);
         Self {
             cmd,
             slow_log_threshold,
