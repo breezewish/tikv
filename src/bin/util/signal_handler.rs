@@ -31,9 +31,11 @@ mod imp {
                     break;
                 }
                 SIGUSR1 => {
+                    info!("Received SIGUSER1");
                     ::rocksdb::set_perf_level(::rocksdb::PerfLevel::EnableTime);
                 }
                 SIGUSR2 => {
+                    info!("Received SIGUSER2");
                     ::rocksdb::set_perf_level(::rocksdb::PerfLevel::EnableCount);
                 }
                 // TODO: handle more signal
