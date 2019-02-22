@@ -31,14 +31,11 @@ mod imp {
                     break;
                 }
                 SIGUSR1 => {
-                    // Use SIGUSR1 to log metrics.
-                    info!("{}", metrics::dump());
-                    if let Some(ref engines) = engines {
-                        info!("{:?}", rocksdb_stats::dump(&engines.kv));
-                        info!("{:?}", rocksdb_stats::dump(&engines.raft));
-                    }
+                    ::rocksdb::set_perf_level(::rocksdb::PerfLevel::EnableTime);
                 }
-                SIGUSR2 => profiling::dump_prof(None),
+                SIGUSR2 => {
+                    ::rocksdb::set_perf_level(::rocksdb::PerfLevel::EnableCount);
+                }
                 // TODO: handle more signal
                 _ => unreachable!(),
             }
