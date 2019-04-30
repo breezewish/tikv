@@ -19,6 +19,9 @@ use self::impl_op::*;
 use crate::coprocessor::codec::data_type::*;
 use crate::coprocessor::Result;
 
+/// Parses the signed / unsigned int in children, and returns the proper Comparer for the children.
+///
+/// Children represents the left expr and the right expr, so children.len() should be two.
 fn map_compare_int_sig<F: CmpOp>(
     value: ScalarFuncSig,
     children: &[Expr],
@@ -47,6 +50,12 @@ fn map_compare_int_sig<F: CmpOp>(
     })
 }
 
+/// Generate RPN functions from given ScalarFuncSig.
+///
+/// If the ScalarFuncSig means compare function for integer, function map_compare_int_sig will be called
+/// to get the proper RPN functions.
+///
+/// children: represents the left expr and the right expr, so children.len() should be two.
 #[rustfmt::skip]
 fn map_pb_sig_to_rpn_func(value: ScalarFuncSig, children: &[Expr]) -> Result<Box<dyn RpnFunction>> {
     Ok(match value {

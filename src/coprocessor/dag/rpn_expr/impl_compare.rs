@@ -7,6 +7,10 @@ use crate::coprocessor::codec::data_type::*;
 use crate::coprocessor::dag::expr::EvalContext;
 use crate::coprocessor::{codec, Error, Result};
 
+/// A binary functional object for comparing data.
+///
+/// For example RpnFnCompare::<BasicComparer<Decimal, CmpOpLT>> means
+/// binary function object '<'.
 pub struct RpnFnCompare<C: Comparer> {
     _phantom: std::marker::PhantomData<C>,
 }
@@ -56,12 +60,17 @@ unsafe impl<C: Comparer> Sync for RpnFnCompare<C> {}
 
 impl_template_fn! { 2 arg @ RpnFnCompare<C>, C: Comparer }
 
+/// A trait of all Comparer.
 pub trait Comparer: 'static {
     type T: Evaluable;
 
+    /// Compares two reference of Evaluable Object.
+    /// It takes two Evaluable Object, compares them and returns the result.
     fn compare(lhs: &Option<Self::T>, rhs: &Option<Self::T>) -> Result<Option<i64>>;
 }
 
+/// Comparer for basic evaluable type with Total Order.
+/// It can be applied to Int, Real, Decimal, Bytes, DateTime, Json and Duration.
 pub struct BasicComparer<T: Evaluable + Ord, F: CmpOp> {
     _phantom_t: std::marker::PhantomData<T>,
     _phantom_f: std::marker::PhantomData<F>,
@@ -80,6 +89,7 @@ impl<T: Evaluable + Ord, F: CmpOp> Comparer for BasicComparer<T, F> {
     }
 }
 
+///  Comparer for Real.
 pub struct RealComparer<F: CmpOp> {
     _phantom_f: std::marker::PhantomData<F>,
 }
@@ -108,6 +118,7 @@ impl<F: CmpOp> Comparer for RealComparer<F> {
     }
 }
 
+/// Comparer for Uint and Uint.
 pub struct UintUintComparer<F: CmpOp> {
     _phantom_f: std::marker::PhantomData<F>,
 }
@@ -129,6 +140,7 @@ impl<F: CmpOp> Comparer for UintUintComparer<F> {
     }
 }
 
+/// Comparer for Uint and Int.
 pub struct UintIntComparer<F: CmpOp> {
     _phantom_f: std::marker::PhantomData<F>,
 }
@@ -153,6 +165,7 @@ impl<F: CmpOp> Comparer for UintIntComparer<F> {
     }
 }
 
+/// Comparer for Int and Uint.
 pub struct IntUintComparer<F: CmpOp> {
     _phantom_f: std::marker::PhantomData<F>,
 }
@@ -177,20 +190,30 @@ impl<F: CmpOp> Comparer for IntUintComparer<F> {
     }
 }
 
+// =====
+
+/// A trait for all comparison operators,
+/// including '<' '>' '==' and etc.
 pub trait CmpOp: 'static {
     #[inline]
+    /// Compares two null (None) values.
+    /// return Some(1) means equal, and Some(0) means unequal.
     fn compare_null() -> Option<i64> {
         None
     }
 
     #[inline]
+    /// Compares one none-null object with one null (None).
+    /// return Some(1) means equal, and Some(0) means unequal.
     fn compare_partial_null() -> Option<i64> {
         None
     }
 
+    /// Returns if the ordering satisfy the CmpOp defined operator.
     fn compare_order(ordering: std::cmp::Ordering) -> bool;
 }
 
+/// Operator for "Less Than" (LT).
 pub struct CmpOpLT;
 
 impl CmpOp for CmpOpLT {
@@ -200,6 +223,7 @@ impl CmpOp for CmpOpLT {
     }
 }
 
+/// Operator for "less than or equal to" (LE).
 pub struct CmpOpLE;
 
 impl CmpOp for CmpOpLE {
@@ -209,6 +233,7 @@ impl CmpOp for CmpOpLE {
     }
 }
 
+/// Operator for "greater than" (GT).
 pub struct CmpOpGT;
 
 impl CmpOp for CmpOpGT {
@@ -218,6 +243,7 @@ impl CmpOp for CmpOpGT {
     }
 }
 
+/// Operator for "greater than or equal to" (GE).
 pub struct CmpOpGE;
 
 impl CmpOp for CmpOpGE {
@@ -227,6 +253,7 @@ impl CmpOp for CmpOpGE {
     }
 }
 
+/// Operator for "not equal to" (NE).
 pub struct CmpOpNE;
 
 impl CmpOp for CmpOpNE {
@@ -236,6 +263,7 @@ impl CmpOp for CmpOpNE {
     }
 }
 
+/// Operator for "equal to" (EQ).
 pub struct CmpOpEQ;
 
 impl CmpOp for CmpOpEQ {
@@ -245,6 +273,7 @@ impl CmpOp for CmpOpEQ {
     }
 }
 
+/// Operator for comparing with NULL.
 pub struct CmpOpNullEQ;
 
 impl CmpOp for CmpOpNullEQ {
