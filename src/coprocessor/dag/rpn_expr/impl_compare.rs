@@ -52,6 +52,13 @@ impl<C: Comparer> Clone for RpnFnCompare<C> {
     }
 }
 
+/// Because RpnFnCompare will be valid whenever db is valid.
+///
+/// It not enables unsynchronized shared mutable state, so it's safe to send
+/// it around. And Copy trait is implemented for RpnFnCompare, so it's Send and Sync.
+///
+/// Because everywhere we expect a trait object you need to choose if we require it to be Send or Sync upfront,
+/// so Send and Sync is implemented here.
 unsafe impl<C: Comparer> Send for RpnFnCompare<C> {}
 
 unsafe impl<C: Comparer> Sync for RpnFnCompare<C> {}
@@ -104,7 +111,7 @@ impl<F: CmpOp> Comparer for RealComparer<F> {
             (None, _) | (_, None) => Ok(F::compare_partial_null()),
             (Some(lhs), Some(rhs)) => lhs
                 .partial_cmp(rhs)
-                // FIXME: It is wired to be a codec error.
+                // FIXME: It is weird to be a codec error.
                 // FIXME: This should never happen because special numbers like NaN and Inf are not
                 // allowed at all.
                 .ok_or_else(|| {
@@ -376,7 +383,7 @@ mod tests {
                 .push_param(arg1)
                 .evaluate(sig)
                 .unwrap();
-            assert_eq!(output, expect_output);
+            assert_eq!(output, expect_output, "{:?}, {:?}, {:?}", arg0, arg1, sig);
         }
     }
 
