@@ -19,7 +19,9 @@ use self::impl_op::*;
 use crate::coprocessor::codec::data_type::*;
 use crate::coprocessor::Result;
 
-/// Parses the signed / unsigned int in children, and returns the proper Comparer for the children.
+/// Parses the signed / unsigned int in children, and returns the corresponding comparing function.
+///
+///  `Int` (`i64`) is used as both "Int" and "Uint" here, so we need to return the corresponding integer comparing function.
 ///
 /// Children represents the left expr and the right expr, so children.len() should be two.
 fn map_compare_int_sig<F: CmpOp>(
@@ -51,9 +53,6 @@ fn map_compare_int_sig<F: CmpOp>(
 }
 
 /// Generate RPN functions from given ScalarFuncSig.
-///
-/// If the ScalarFuncSig means compare function for integer, function map_compare_int_sig will be called
-/// to get the proper RPN functions.
 ///
 /// children: represents the left expr and the right expr, so children.len() should be two.
 #[rustfmt::skip]

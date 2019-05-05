@@ -10,7 +10,7 @@ use crate::coprocessor::{codec, Error, Result};
 /// A binary functional object for comparing data.
 ///
 /// For example RpnFnCompare::<BasicComparer<Decimal, CmpOpLT>> means
-/// binary function object '<'.
+/// binary function object `<`
 pub struct RpnFnCompare<C: Comparer> {
     _phantom: std::marker::PhantomData<C>,
 }
@@ -52,7 +52,7 @@ impl<C: Comparer> Clone for RpnFnCompare<C> {
     }
 }
 
-/// Because RpnFnCompare will be valid whenever db is valid.
+/// Because RpnFnCompare will be valid everywhere.
 ///
 /// It not enables unsynchronized shared mutable state, so it's safe to send
 /// it around. And Copy trait is implemented for RpnFnCompare, so it's Send and Sync.
@@ -67,17 +67,17 @@ unsafe impl<C: Comparer> Sync for RpnFnCompare<C> {}
 
 impl_template_fn! { 2 arg @ RpnFnCompare<C>, C: Comparer }
 
-/// A trait of all Comparer.
+/// A trait of all types that can compare two reference of `Evaluable` parameters.
 pub trait Comparer: 'static {
     type T: Evaluable;
 
     /// Compares two reference of Evaluable Object.
-    /// It takes two Evaluable Object, compares them and returns the result.
+    /// It compares two Evaluable parameters and returns the result.
     fn compare(lhs: &Option<Self::T>, rhs: &Option<Self::T>) -> Result<Option<i64>>;
 }
 
-/// Comparer for basic evaluable type with Total Order.
-/// It can be applied to Int, Real, Decimal, Bytes, DateTime, Json and Duration.
+/// Compares basic evaluable type with Total Order including `Int`, `Decimal`, `Bytes`, `DateTime`, `Json` and `Duration`.
+/// `Real` is not a "basic" type here, because it's PartialOrd but not Ord.
 pub struct BasicComparer<T: Evaluable + Ord, F: CmpOp> {
     _phantom_t: std::marker::PhantomData<T>,
     _phantom_f: std::marker::PhantomData<F>,
@@ -96,7 +96,7 @@ impl<T: Evaluable + Ord, F: CmpOp> Comparer for BasicComparer<T, F> {
     }
 }
 
-///  Comparer for Real.
+///  Compares two `Real` parameters.
 pub struct RealComparer<F: CmpOp> {
     _phantom_f: std::marker::PhantomData<F>,
 }
@@ -125,7 +125,7 @@ impl<F: CmpOp> Comparer for RealComparer<F> {
     }
 }
 
-/// Comparer for Uint and Uint.
+/// Compares `Uint` and `Uint`.
 pub struct UintUintComparer<F: CmpOp> {
     _phantom_f: std::marker::PhantomData<F>,
 }
@@ -147,7 +147,7 @@ impl<F: CmpOp> Comparer for UintUintComparer<F> {
     }
 }
 
-/// Comparer for Uint and Int.
+/// Compares for `Uint` and `Int`.
 pub struct UintIntComparer<F: CmpOp> {
     _phantom_f: std::marker::PhantomData<F>,
 }
@@ -172,7 +172,7 @@ impl<F: CmpOp> Comparer for UintIntComparer<F> {
     }
 }
 
-/// Comparer for Int and Uint.
+/// Compares for `Int` and `Uint`.
 pub struct IntUintComparer<F: CmpOp> {
     _phantom_f: std::marker::PhantomData<F>,
 }
@@ -199,8 +199,10 @@ impl<F: CmpOp> Comparer for IntUintComparer<F> {
 
 // =====
 
-/// A trait for all comparison operators,
-/// including '<' '>' '==' and etc.
+/// A trait for comparison operator including `<` `>` `==` and etc.
+/// CmpOp takes the order `std::cmp::Ordering` and return whether the order satisfy CmpOp order,
+/// represented by Rust's `bool` type.
+/// It also defines the result of compare with null.
 pub trait CmpOp: 'static {
     #[inline]
     /// Compares two null (None) values.
