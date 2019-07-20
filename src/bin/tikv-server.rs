@@ -14,7 +14,6 @@
 #![feature(slice_patterns)]
 #![feature(proc_macro_non_items)]
 #![feature(alloc_system)]
-extern crate alloc;
 extern crate alloc_system;
 
 extern crate chrono;
