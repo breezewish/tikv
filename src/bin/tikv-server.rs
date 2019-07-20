@@ -13,8 +13,11 @@
 
 #![feature(slice_patterns)]
 #![feature(proc_macro_non_items)]
-#![feature(alloc_system)]
-extern crate alloc_system;
+
+use std::alloc::System;
+
+#[global_allocator]
+static A: System = System;
 
 extern crate chrono;
 extern crate clap;
