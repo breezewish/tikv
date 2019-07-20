@@ -63,7 +63,6 @@ use tikv::util::{escape, unescape};
 const METRICS_PROMETHEUS: &str = "prometheus";
 const METRICS_ROCKSDB_KV: &str = "rocksdb_kv";
 const METRICS_ROCKSDB_RAFT: &str = "rocksdb_raft";
-const METRICS_JEMALLOC: &str = "jemalloc";
 const RUN_LDB_CMD_KEY_WORD: &str = "ldb";
 
 fn perror_and_exit<E: Error>(prefix: &str, e: E) -> ! {
@@ -648,7 +647,6 @@ impl DebugExecutor for DebugClient {
             let metrics = match tag {
                 METRICS_ROCKSDB_KV => resp.take_rocksdb_kv(),
                 METRICS_ROCKSDB_RAFT => resp.take_rocksdb_raft(),
-                METRICS_JEMALLOC => resp.take_jemalloc(),
                 METRICS_PROMETHEUS => resp.take_prometheus(),
                 _ => String::from(
                     "unsupported tag, should be one of prometheus/jemalloc/rocksdb_raft/rocksdb_kv",

@@ -22,8 +22,6 @@ static A: System = System;
 extern crate chrono;
 extern crate clap;
 extern crate fs2;
-#[cfg(feature = "mem-profiling")]
-extern crate jemallocator;
 extern crate libc;
 #[macro_use]
 extern crate log;

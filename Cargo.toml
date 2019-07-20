@@ -8,7 +8,6 @@ publish = false
 default = []
 portable = ["rocksdb/portable"]
 sse = ["rocksdb/sse"]
-mem-profiling = ["jemallocator"]
 no-fail = ["fail/no_fail"]
 
 [lib]
@@ -109,12 +108,6 @@ features = ["nightly", "push", "process"]
 
 [dependencies.prometheus-static-metric]
 version = "0.1.4"
-
-[dependencies.jemallocator]
-git = "https://github.com/busyjay/jemallocator.git"
-branch = "dev"
-features = ["profiling"]
-optional = true
 
 [dev-dependencies]
 test_util = { path = "components/test_util" }

@@ -15,8 +15,6 @@
 mod imp {
     use libc::c_int;
 
-    use util::profiling;
-
     use tikv::raftstore::store::Engines;
     use tikv::util::{metrics, rocksdb_stats};
 
@@ -38,7 +36,6 @@ mod imp {
                         info!("{:?}", rocksdb_stats::dump(&engines.raft));
                     }
                 }
-                SIGUSR2 => profiling::dump_prof(None),
                 // TODO: handle more signal
                 _ => unreachable!(),
             }
