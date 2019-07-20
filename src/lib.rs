@@ -26,14 +26,11 @@
 #![feature(ascii_ctype)]
 #![feature(const_int_ops)]
 #![feature(use_extern_macros)]
-#![feature(alloc_system)]
 #![recursion_limit = "200"]
 // Currently this raises some false positives, so we allow it:
 // https://github.com/rust-lang-nursery/rust-clippy/issues/2638
 #![cfg_attr(feature = "cargo-clippy", allow(nonminimal_bool))]
 
-extern crate alloc_system;
-extern crate alloc;
 extern crate backtrace;
 #[macro_use]
 extern crate bitflags;
