@@ -11,6 +11,8 @@ use std::{cmp, i32, i64, mem, u32, u64};
 
 use byteorder::WriteBytesExt;
 use num;
+
+use codec::prelude::*;
 use tikv_util::codec::number::{self, NumberEncoder};
 use tikv_util::codec::BytesSlice;
 use tikv_util::escape;
@@ -1890,44 +1892,6 @@ macro_rules! write_word {
     }};
 }
 
-macro_rules! read_word {
-    ($data:expr, $size:expr, $readed:ident) => {{
-        let size = $size as usize;
-        if $data.len() >= size {
-            let mut first = $data[0];
-            if $readed == 0 {
-                first ^= 0x80;
-                $readed += size;
-            }
-            let res = match size {
-                1 => i32::from(first as i8) as u32,
-                2 => ((i32::from(first as i8) << 8) + i32::from($data[1])) as u32,
-                3 => {
-                    if first & 128 > 0 {
-                        (255 << 24)
-                            | (u32::from(first) << 16)
-                            | (u32::from($data[1]) << 8)
-                            | u32::from($data[2])
-                    } else {
-                        (u32::from(first) << 16) | (u32::from($data[1]) << 8) | u32::from($data[2])
-                    }
-                }
-                4 => {
-                    ((i32::from(first as i8) << 24)
-                        + (i32::from($data[1]) << 16)
-                        + (i32::from($data[2]) << 8)
-                        + i32::from($data[3])) as u32
-                }
-                _ => unreachable!(),
-            };
-            *$data = &$data[size..];
-            Ok(res)
-        } else {
-            Err(Error::unexpected_eof())
-        }
-    }};
-}
-
 pub trait DecimalEncoder: NumberEncoder {
     /// Encode decimal to comparable bytes.
     // TODO: resolve following warnings.
@@ -2055,14 +2019,62 @@ pub trait DecimalEncoder: NumberEncoder {
 
 impl<T: Write> DecimalEncoder for T {}
 
-impl Decimal {
-    /// `decode` decodes value encoded by `encode_decimal`.
-    pub fn decode(data: &mut BytesSlice<'_>) -> Result<Decimal> {
-        if data.len() < 3 {
-            return Err(box_err!("decimal too short: {} < 3", data.len()));
+// Mark as `#[inline]` since in many cases `size` is a constant.
+#[inline]
+fn read_word<T: BufferReader + ?Sized>(
+    data: &mut T,
+    size: usize,
+    is_first: &mut bool,
+) -> Result<u32> {
+    // Note: In TiDB's implementation, the first byte to read is flipped:
+    // dCopy[0] ^= 0x80
+    //
+    // In TiKV, we do zero copy so that we need `is_first` flag.
+
+    let buf = data.bytes();
+    if buf.len() < size {
+        return Err(Error::unexpected_eof());
+    }
+    let mut first = buf[0];
+    if *is_first {
+        first ^= 0x80;
+        *is_first = false;
+    }
+
+    let res = match size {
+        1 => i32::from(first as i8) as u32,
+        2 => ((i32::from(first as i8) << 8) + i32::from(buf[1])) as u32,
+        3 => {
+            if first & 128 > 0 {
+                (255 << 24)
+                    | (u32::from(first) << 16)
+                    | (u32::from(buf[1]) << 8)
+                    | u32::from(buf[2])
+            } else {
+                (u32::from(first) << 16) | (u32::from(buf[1]) << 8) | u32::from(buf[2])
+            }
         }
-        let (prec, frac_cnt) = (data[0], data[1]);
-        *data = &data[2..];
+        4 => {
+            ((i32::from(first as i8) << 24)
+                + (i32::from(buf[1]) << 16)
+                + (i32::from(buf[2]) << 8)
+                + i32::from(buf[3])) as u32
+        }
+        _ => unreachable!(),
+    };
+
+    data.advance(size);
+
+    Ok(res)
+}
+
+pub trait DecimalDecoder: NumberDecoder {
+    /// Decodes value encoded by `encode_decimal`.
+    fn decode_decimal(&mut self) -> Result<Decimal> {
+        if self.bytes().len() < 3 {
+            return Err(box_err!("decimal too short: {} < 3", self.bytes().len()));
+        }
+        let (prec, frac_cnt) = (self.read_u8().unwrap(), self.read_u8().unwrap());
 
         if prec < frac_cnt {
             return Err(box_err!(
@@ -2085,7 +2097,11 @@ impl Decimal {
         if trailing_digits > 0 {
             frac_word_to += 1;
         }
-        let mask = if data[0] & 0x80 > 0 { 0 } else { u32::MAX };
+        let mask = if self.bytes()[0] & 0x80 > 0 {
+            0
+        } else {
+            u32::MAX
+        };
         let res = fix_word_cnt_err(int_word_to, frac_word_to, WORD_BUF_LEN);
         if !res.is_ok() {
             return Err(box_err!("decoding decimal failed: {:?}", res));
@@ -2094,10 +2110,10 @@ impl Decimal {
         d.precision = prec;
         d.result_frac_cnt = frac_cnt;
         let mut word_idx = 0;
-        let mut _readed = 0;
+        let mut is_first = true;
         if leading_digits > 0 {
             let i = DIG_2_BYTES[leading_digits];
-            d.word_buf[word_idx] = read_word!(data, i, _readed)? ^ mask;
+            d.word_buf[word_idx] = read_word(self, i as usize, &mut is_first)? ^ mask;
             if d.word_buf[word_idx] >= TEN_POW[leading_digits + 1] {
                 return Err(box_err!("invalid leading digits for decimal number"));
             }
@@ -2108,7 +2124,7 @@ impl Decimal {
             }
         }
         for _ in 0..int_word_cnt {
-            d.word_buf[word_idx] = read_word!(data, 4, _readed)? ^ mask;
+            d.word_buf[word_idx] = read_word(self, 4, &mut is_first)? ^ mask;
             if d.word_buf[word_idx] > WORD_MAX {
                 return Err(box_err!("invalid int part for decimal number"));
             }
@@ -2119,14 +2135,14 @@ impl Decimal {
             }
         }
         for _ in 0..frac_word_cnt {
-            d.word_buf[word_idx] = read_word!(data, 4, _readed)? ^ mask;
+            d.word_buf[word_idx] = read_word(self, 4, &mut is_first)? ^ mask;
             if d.word_buf[word_idx] > WORD_MAX {
                 return Err(box_err!("invalid frac part decimal number"));
             }
             word_idx += 1;
         }
         if trailing_digits > 0 {
-            let x = read_word!(data, DIG_2_BYTES[trailing_digits], _readed)? ^ mask;
+            let x = read_word(self, DIG_2_BYTES[trailing_digits] as usize, &mut is_first)? ^ mask;
             d.word_buf[word_idx] = x * TEN_POW[DIGITS_PER_WORD as usize - trailing_digits];
             if d.word_buf[word_idx] > WORD_MAX {
                 return Err(box_err!("invalid trailing digits for decimal number"));
@@ -2138,7 +2154,11 @@ impl Decimal {
         d.result_frac_cnt = frac_cnt;
         Ok(d)
     }
+}
 
+impl<T: BufferReader> DecimalDecoder for T {}
+
+impl Decimal {
     /// `decode_from_chunk` decode Decimal encodeded by `encode_decimal_to_chunk`.
     pub fn decode_from_chunk(data: &mut BytesSlice<'_>) -> Result<Decimal> {
         let mut d = if data.len() > 4 {
@@ -2825,13 +2845,13 @@ mod tests {
             (WORD_BUF_LEN, b"1e001",Res::Ok("10")),
             (WORD_BUF_LEN, b"1e00", Res::Ok("1")),
             (WORD_BUF_LEN, b"1e1073741823",
-            Res::Overflow("999999999999999999999999999999999999999999999999999999999999999999999999999999999")),
+             Res::Overflow("999999999999999999999999999999999999999999999999999999999999999999999999999999999")),
             (WORD_BUF_LEN, b"-1e1073741823",
-            Res::Overflow("-999999999999999999999999999999999999999999999999999999999999999999999999999999999")),
+             Res::Overflow("-999999999999999999999999999999999999999999999999999999999999999999999999999999999")),
             (WORD_BUF_LEN,b"135999696916777530000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
              Res::Overflow("0")),
             (WORD_BUF_LEN,b"-0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002932935661422768",
-            Res::Truncated("0.000000000000000000000000000000000000000000000000000000000000000000000000")),
+             Res::Truncated("0.000000000000000000000000000000000000000000000000000000000000000000000000")),
             // The following case return truncated in tidb, need to fix it in bytes_to_int_without_context
             (WORD_BUF_LEN,b"1eabc",Res::Ok("1")),
             (WORD_BUF_LEN,b"1e",Res::Ok("1")),
@@ -2905,7 +2925,7 @@ mod tests {
             let dec = dec_str.parse::<Decimal>().unwrap();
             let mut buf = vec![];
             let res = buf.encode_decimal(&dec, prec, frac).unwrap();
-            let decoded = Decimal::decode(&mut buf.as_slice()).unwrap();
+            let decoded = buf.as_slice().decode_decimal().unwrap();
             let res = res.map(|_| decoded.to_string());
             assert_eq!(res, exp.map(|s| s.to_owned()));
         }
