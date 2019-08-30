@@ -26,6 +26,8 @@ pub use crate::rocks::{
     CFHandle, DBIterator, DBVector, Range, ReadOptions, Snapshot, SyncSnapshot, WriteBatch,
     WriteOptions, DB,
 };
+pub use engine_rocksdb::crocksdb_ffi;
+
 mod errors;
 pub use crate::errors::*;
 mod peekable;

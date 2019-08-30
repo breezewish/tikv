@@ -340,25 +340,15 @@ pub fn auto_compactions_is_disabled(engine: &DB) -> bool {
     false
 }
 
-pub struct FixedSuffixSliceTransform {
-    pub suffix_len: usize,
-}
-
-impl FixedSuffixSliceTransform {
-    pub fn new(suffix_len: usize) -> FixedSuffixSliceTransform {
-        FixedSuffixSliceTransform { suffix_len }
-    }
-}
+pub struct FixedSuffixSliceTransform;
 
 impl SliceTransform for FixedSuffixSliceTransform {
     fn transform<'a>(&mut self, key: &'a [u8]) -> &'a [u8] {
-        let mid = key.len() - self.suffix_len;
-        let (left, _) = key.split_at(mid);
-        left
+        &key[..key.len() - 8]
     }
 
     fn in_domain(&mut self, key: &[u8]) -> bool {
-        key.len() >= self.suffix_len
+        key.len() >= 8
     }
 
     fn in_range(&mut self, _: &[u8]) -> bool {

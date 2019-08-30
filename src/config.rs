@@ -13,6 +13,7 @@ use std::io::Write;
 use std::path::Path;
 use std::usize;
 
+use engine::crocksdb_ffi;
 use engine::rocks::{
     BlockBasedOptions, Cache, ColumnFamilyOptions, CompactionPriority, DBCompactionStyle,
     DBCompressionType, DBOptions, DBRateLimiterMode, DBRecoveryMode, LRUCacheOptions,
@@ -38,8 +39,7 @@ use crate::storage::lock_manager::Config as PessimisticTxnConfig;
 use crate::storage::{Config as StorageConfig, DEFAULT_ROCKSDB_SUB_DIR};
 use engine::rocks::util::config::{self as rocks_config, BlobRunMode, CompressionType};
 use engine::rocks::util::{
-    db_exist, CFOptions, EventListener, FixedPrefixSliceTransform, FixedSuffixSliceTransform,
-    NoopSliceTransform,
+    db_exist, CFOptions, EventListener, FixedPrefixSliceTransform, NoopSliceTransform,
 };
 use engine::{CF_DEFAULT, CF_LOCK, CF_RAFT, CF_WRITE};
 use pd_client::Config as PdConfig;
@@ -453,14 +453,48 @@ impl Default for WriteCfConfig {
     }
 }
 
+extern "C" fn destructor(_state: *mut std::ffi::c_void) {}
+
+extern "C" fn name(_state: *mut std::ffi::c_void) -> *const i8 {
+    b"FixedSuffixSliceTransform\0".as_ptr() as *const i8
+}
+
+extern "C" fn in_range(_state: *mut std::ffi::c_void, _key: *const u8, _key_len: usize) -> u8 {
+    true as u8
+}
+
+extern "C" fn in_domain(_state: *mut std::ffi::c_void, _key: *const u8, key_len: usize) -> u8 {
+    (key_len >= 8) as u8
+}
+
+extern "C" fn transform(
+    _state: *mut std::ffi::c_void,
+    key: *const u8,
+    key_len: usize,
+    dest_len: *mut usize,
+) -> *const u8 {
+    unsafe {
+        *dest_len = key_len - 8;
+        key
+    }
+}
+
 impl WriteCfConfig {
     pub fn build_opt(&self, cache: &Option<Cache>) -> ColumnFamilyOptions {
-        let mut cf_opts = build_cf_opt!(self, cache);
+        let mut cf_opts: ColumnFamilyOptions = build_cf_opt!(self, cache);
         // Prefix extractor(trim the timestamp at tail) for write cf.
-        let e = Box::new(FixedSuffixSliceTransform::new(8));
-        cf_opts
-            .set_prefix_extractor("FixedSuffixSliceTransform", e)
-            .unwrap();
+        unsafe {
+            let transform = crocksdb_ffi::crocksdb_slicetransform_create(
+                std::ptr::null_mut(),
+                destructor,
+                transform,
+                in_domain,
+                in_range,
+                name,
+            );
+            crocksdb_ffi::crocksdb_options_set_prefix_extractor(cf_opts.inner, transform);
+        }
+
         // Create prefix bloom filter for memtable.
         cf_opts.set_memtable_prefix_bloom_size_ratio(0.1);
         // Collects user defined properties.
