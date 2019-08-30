@@ -259,7 +259,7 @@ mod tests {
         cf_opts
             .set_prefix_extractor(
                 "FixedSuffixSliceTransform",
-                Box::new(rocks::util::FixedSuffixSliceTransform::new(8)),
+                Box::new(rocks::util::FixedSuffixSliceTransform),
             )
             .unwrap_or_else(|err| panic!("{:?}", err));
         // Create prefix bloom filter for memtable.

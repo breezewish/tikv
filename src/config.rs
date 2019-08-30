@@ -457,7 +457,7 @@ impl WriteCfConfig {
     pub fn build_opt(&self, cache: &Option<Cache>) -> ColumnFamilyOptions {
         let mut cf_opts = build_cf_opt!(self, cache);
         // Prefix extractor(trim the timestamp at tail) for write cf.
-        let e = Box::new(FixedSuffixSliceTransform::new(8));
+        let e = Box::new(FixedSuffixSliceTransform);
         cf_opts
             .set_prefix_extractor("FixedSuffixSliceTransform", e)
             .unwrap();
