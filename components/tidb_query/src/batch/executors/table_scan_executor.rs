@@ -152,6 +152,7 @@ impl ScanExecutorImpl for TableScanExecutorImpl {
         &mut self.context
     }
 
+    #[inline(never)]
     /// Constructs empty columns, with PK in decoded format and the rest in raw format.
     fn build_column_vec(&self, scan_rows: usize) -> LazyBatchColumnVec {
         let columns_len = self.schema.len();
@@ -197,6 +198,7 @@ impl ScanExecutorImpl for TableScanExecutorImpl {
         LazyBatchColumnVec::from(columns)
     }
 
+    #[inline(never)]
     fn process_kv_pair(
         &mut self,
         key: &[u8],

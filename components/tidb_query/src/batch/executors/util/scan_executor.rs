@@ -91,6 +91,7 @@ impl<S: Storage, I: ScanExecutorImpl> ScanExecutor<S, I> {
     /// Fills a column vector and returns whether or not all ranges are drained.
     ///
     /// The columns are ensured to be regular even if there are errors during the process.
+    #[inline(never)]
     fn fill_column_vec(
         &mut self,
         scan_rows: usize,
