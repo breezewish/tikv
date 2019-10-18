@@ -32,6 +32,9 @@ pub trait Storage: Send {
     // TODO: Use reference is better.
     fn get(&mut self, is_key_only: bool, range: PointRange) -> Result<Option<OwnedKvPair>>;
 
+    fn batch_get(&mut self, is_key_only: bool, ranges: Vec<PointRange>)
+        -> Result<Vec<OwnedKvPair>>;
+
     fn collect_statistics(&mut self, dest: &mut Self::Statistics);
 }
 
@@ -53,6 +56,14 @@ impl<T: Storage + ?Sized> Storage for Box<T> {
 
     fn get(&mut self, is_key_only: bool, range: PointRange) -> Result<Option<OwnedKvPair>> {
         (**self).get(is_key_only, range)
+    }
+
+    fn batch_get(
+        &mut self,
+        is_key_only: bool,
+        ranges: Vec<PointRange>,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        (**self).batch_get(is_key_only, ranges)
     }
 
     fn collect_statistics(&mut self, dest: &mut Self::Statistics) {

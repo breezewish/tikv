@@ -60,13 +60,37 @@ impl<S: Store> Storage for TiKVStorage<S> {
     }
 
     fn get(&mut self, _is_key_only: bool, range: PointRange) -> QEResult<Option<OwnedKvPair>> {
-        // TODO: Default CF does not need to be accessed if KeyOnly.
+        // TODO: Change the signature to respect `is_key_only`.
         let key = range.0;
         let value = self
             .store
             .get(&Key::from_raw(&key), &mut self.cf_stats_backlog)
             .map_err(Error::from)?;
         Ok(value.map(move |v| (key, v)))
+    }
+
+    fn batch_get(
+        &mut self,
+        _is_key_only: bool,
+        mut ranges: Vec<PointRange>,
+    ) -> QEResult<Vec<(Vec<u8>, Vec<u8>)>> {
+        // TODO: Change the signature to respect `is_key_only`.
+        // FIXME: There are a lot of allocations in this function.
+        let keys: Vec<_> = ranges.iter().map(|r| Key::from_raw(&r.0)).collect();
+        let values = self
+            .store
+            .batch_get(&keys, &mut self.cf_stats_backlog)
+            .map_err(Error::from)?;
+
+        let mut ret_kvs = Vec::with_capacity(ranges.len());
+        for (idx, value) in values.into_iter().enumerate() {
+            let v = value.map_err(Error::from)?;
+            if let Some(v) = v {
+                let k = std::mem::replace(&mut ranges[idx].0, Vec::new());
+                ret_kvs.push((k, v));
+            }
+        }
+        Ok(ret_kvs)
     }
 
     fn collect_statistics(&mut self, dest: &mut Statistics) {

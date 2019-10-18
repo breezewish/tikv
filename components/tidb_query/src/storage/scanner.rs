@@ -16,6 +16,11 @@ pub struct RangesScanner<T> {
     scan_backward_in_range: bool,
     is_key_only: bool,
 
+    // Batch get results are stored in descending order, so that it is cheap to retrieve and
+    // remove item one by one.
+    is_in_multi_point_range: bool,
+    point_range_results_desc: Vec<OwnedKvPair>,
+
     scanned_rows_per_range: Vec<usize>,
 
     // The following fields are only used for calculating scanned range. Scanned range is only
@@ -52,6 +57,9 @@ impl<T: Storage> RangesScanner<T> {
             ranges_iter,
             scan_backward_in_range,
             is_key_only,
+            is_in_multi_point_range: false,
+            // Will be filled directly by storage result, no need to pre-allocate.
+            point_range_results_desc: Vec::new(),
             scanned_rows_per_range: Vec::with_capacity(ranges_len),
             is_scanned_range_aware,
             current_range: IntervalRange {
@@ -70,24 +78,32 @@ impl<T: Storage> RangesScanner<T> {
         loop {
             let range = self.ranges_iter.next();
             let some_row = match range {
-                IterStatus::NewRange(Range::Point(r)) => {
-                    if self.is_scanned_range_aware {
-                        self.update_scanned_range_from_new_point(&r);
-                    }
-                    self.ranges_iter.notify_drained();
-                    self.scanned_rows_per_range.push(0);
-                    self.storage.get(self.is_key_only, r)?
+                IterStatus::NewMultiPointRange(points) => {
+                    // TODO: scanned rows per range?
+                    // TODO: scanned range?
+                    self.is_in_multi_point_range = true;
+                    self.point_range_results_desc =
+                        self.storage.batch_get(self.is_key_only, points)?;
+                    self.point_range_results_desc.reverse();
+                    self.point_range_results_desc.pop()
                 }
-                IterStatus::NewRange(Range::Interval(r)) => {
+                IterStatus::NewIntervalRange(r) => {
                     if self.is_scanned_range_aware {
                         self.update_scanned_range_from_new_range(&r);
                     }
                     self.scanned_rows_per_range.push(0);
+                    self.is_in_multi_point_range = false;
                     self.storage
                         .begin_scan(self.scan_backward_in_range, self.is_key_only, r)?;
                     self.storage.scan_next()?
                 }
-                IterStatus::Continue => self.storage.scan_next()?,
+                IterStatus::Continue => {
+                    if self.is_in_multi_point_range {
+                        self.point_range_results_desc.pop()
+                    } else {
+                        self.storage.scan_next()?
+                    }
+                }
                 IterStatus::Drained => {
                     if self.is_scanned_range_aware {
                         self.update_working_range_end_key();

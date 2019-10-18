@@ -102,6 +102,20 @@ impl super::Storage for FixtureStorage {
         }
     }
 
+    fn batch_get(
+        &mut self,
+        is_key_only: bool,
+        ranges: Vec<PointRange>,
+    ) -> Result<Vec<super::OwnedKvPair>> {
+        let mut ret = Vec::with_capacity(ranges.len());
+        for r in ranges {
+            if let Some(kv) = self.get(is_key_only, r)? {
+                ret.push(kv);
+            }
+        }
+        Ok(ret)
+    }
+
     fn collect_statistics(&mut self, _dest: &mut Self::Statistics) {}
 }
 
