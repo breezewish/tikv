@@ -15,16 +15,19 @@ use crate::Key;
 pub struct RaftPhysicalKey(pub Vec<u8>);
 
 impl RaftPhysicalKey {
+    #[inline(never)]
     pub fn transmute_from_basic(basic_key: BasicPhysicalKey) -> Self {
         // Safety: BasicPhysicalKey and RaftPhysicalKey has the same layout.
         unsafe { std::mem::transmute(basic_key) }
     }
 
+    #[inline(never)]
     pub fn transmute_from_basic_ref(ptr: &BasicPhysicalKey) -> &Self {
         // Safety: BasicPhysicalKey and RaftPhysicalKey has the same layout.
         unsafe { &*(ptr as *const BasicPhysicalKey as *const RaftPhysicalKey) }
     }
 
+    #[inline(never)]
     pub fn transmute_from_basic_mut(ptr: &mut BasicPhysicalKey) -> &mut Self {
         // Safety: BasicPhysicalKey and RaftPhysicalKey has the same layout.
         unsafe { &mut *(ptr as *mut BasicPhysicalKey as *mut RaftPhysicalKey) }
@@ -47,17 +50,17 @@ impl Display for RaftPhysicalKey {
 impl KeyLike for RaftPhysicalKey {}
 
 impl BufferWriter for RaftPhysicalKey {
-    #[inline]
+    #[inline(never)]
     unsafe fn bytes_mut(&mut self, size: usize) -> &mut [u8] {
         self.0.bytes_mut(size)
     }
 
-    #[inline]
+    #[inline(never)]
     unsafe fn advance_mut(&mut self, count: usize) {
         self.0.advance_mut(count)
     }
 
-    #[inline]
+    #[inline(never)]
     fn write_bytes(&mut self, values: &[u8]) -> codec::Result<()> {
         self.0.write_bytes(values)
     }
@@ -81,22 +84,22 @@ impl PhysicalKey for RaftPhysicalKey {
     const PHYSICAL_PREFIX: &'static [u8] = crate::DATA_PREFIX_KEY;
     type Slice = RaftPhysicalKeySlice;
 
-    #[inline]
+    #[inline(never)]
     fn _new_from_vec(vec: Vec<u8>) -> Self {
         RaftPhysicalKey(vec)
     }
 
-    #[inline]
+    #[inline(never)]
     fn _vec_ref(&self) -> &Vec<u8> {
         &self.0
     }
 
-    #[inline]
+    #[inline(never)]
     fn _vec_mut(&mut self) -> &mut Vec<u8> {
         &mut self.0
     }
 
-    #[inline]
+    #[inline(never)]
     fn _into_vec(self) -> Vec<u8> {
         self.0
     }
@@ -127,7 +130,7 @@ impl Display for RaftPhysicalKeySlice {
 impl KeyLike for RaftPhysicalKeySlice {}
 
 impl RaftPhysicalKeySlice {
-    #[inline]
+    #[inline(never)]
     pub fn as_basic(&self) -> &BasicPhysicalKeySlice {
         BasicPhysicalKeySlice::from_physical_std_slice(self.as_physical_std_slice())
     }
@@ -140,6 +143,7 @@ impl PhysicalKeySlice for RaftPhysicalKeySlice {
     type LegacyKeySliceOwner = RaftPhysicalKey;
 
     // TODO: Only to support `impl Key for ToPhysicalKeySlice<T>`. To be removed.
+    #[inline(never)]
     fn from_legacy_key(key: &Key) -> PKContainer<'_, RaftPhysicalKey, Self> {
         let physical_key = RaftPhysicalKey::alloc_from_logical_slice(key.as_logical_key_slice());
         let key_slice = physical_key.as_physical_slice() as *const RaftPhysicalKeySlice;
@@ -148,18 +152,18 @@ impl PhysicalKeySlice for RaftPhysicalKeySlice {
         unsafe { PKContainer::new(physical_key, key_slice) }
     }
 
-    #[inline]
+    #[inline(never)]
     fn as_physical_std_slice(&self) -> &[u8] {
         &self.0
     }
 
-    #[inline]
+    #[inline(never)]
     fn from_physical_std_slice(s: &[u8]) -> &Self {
         assert!(s.starts_with(crate::DATA_PREFIX_KEY));
         unsafe { &*(s as *const [u8] as *const Self) }
     }
 
-    #[inline]
+    #[inline(never)]
     fn as_logical_slice(&self) -> &LogicalKeySlice {
         LogicalKeySlice::from_std_slice(&self.0[crate::DATA_PREFIX_KEY.len()..])
     }
@@ -169,7 +173,7 @@ impl ToPhysicalKeySlice<RaftPhysicalKeySlice> for RaftPhysicalKeySlice {
     // Any PhysicalKeySlice itself implements ToPhysicalKeySlice.
     type SliceOwner = ();
 
-    #[inline]
+    #[inline(never)]
     fn to_physical_slice_container(&self) -> PKContainer<'_, (), RaftPhysicalKeySlice> {
         let r = self as *const RaftPhysicalKeySlice;
         unsafe { PKContainer::new((), r) }
@@ -181,7 +185,7 @@ impl ToPhysicalKeySlice<RaftPhysicalKeySlice> for RaftPhysicalKey {
     // extra owned value.
     type SliceOwner = ();
 
-    #[inline]
+    #[inline(never)]
     fn to_physical_slice_container(&self) -> PKContainer<'_, (), RaftPhysicalKeySlice> {
         self.as_physical_slice().to_physical_slice_container()
     }
@@ -192,7 +196,7 @@ impl ToPhysicalKeySlice<BasicPhysicalKeySlice> for RaftPhysicalKeySlice {
     // since they are all physical keys.
     type SliceOwner = ();
 
-    #[inline]
+    #[inline(never)]
     fn to_physical_slice_container(&self) -> PKContainer<'_, (), BasicPhysicalKeySlice> {
         self.as_basic().to_physical_slice_container()
     }
@@ -201,7 +205,7 @@ impl ToPhysicalKeySlice<BasicPhysicalKeySlice> for RaftPhysicalKeySlice {
 impl ToPhysicalKeySlice<BasicPhysicalKeySlice> for RaftPhysicalKey {
     type SliceOwner = ();
 
-    #[inline]
+    #[inline(never)]
     fn to_physical_slice_container(&self) -> PKContainer<'_, (), BasicPhysicalKeySlice> {
         self.as_physical_slice().to_physical_slice_container()
     }

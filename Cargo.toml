@@ -234,7 +234,7 @@ rpath = false
 # The benchmark profile is identical to release, except that lto = false
 [profile.bench]
 opt-level = 3
-debug = false
+debug = true
 codegen-units = 1
 lto = 'thin'
 incremental = false

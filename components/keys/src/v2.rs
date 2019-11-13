@@ -35,80 +35,80 @@ pub trait PhysicalKey: Sized + Clone + KeyLike + NumberEncoder + BufferWriter + 
     #[doc(hidden)]
     fn _into_vec(self) -> Vec<u8>;
 
-    #[inline]
+    #[inline(never)]
     fn into_physical_vec(self) -> Vec<u8> {
         self._into_vec()
     }
 
-    #[inline]
+    #[inline(never)]
     fn as_physical_std_slice(&self) -> &[u8] {
         self._vec_ref().as_slice()
     }
 
-    #[inline]
+    #[inline(never)]
     fn as_physical_slice(&self) -> &Self::Slice {
         Self::Slice::from_physical_std_slice(self.as_physical_std_slice())
     }
 
-    #[inline]
+    #[inline(never)]
     fn as_physical_slice_without_ts(&self) -> &Self::Slice {
         self.as_physical_slice().as_physical_slice_without_ts()
     }
 
-    #[inline]
+    #[inline(never)]
     fn as_logical_slice(&self) -> &LogicalKeySlice {
         self.as_physical_slice().as_logical_slice()
     }
 
-    #[inline]
+    #[inline(never)]
     fn as_logical_slice_without_ts(&self) -> &LogicalKeySlice {
         self.as_physical_slice().as_logical_slice_without_ts()
     }
 
-    #[inline]
+    #[inline(never)]
     fn as_logical_std_slice(&self) -> &[u8] {
         self.as_logical_slice().as_std_slice()
     }
 
-    #[inline]
+    #[inline(never)]
     fn from_physical_vec(pk: Vec<u8>) -> Self {
         assert!(pk.starts_with(Self::PHYSICAL_PREFIX));
         Self::_new_from_vec(pk)
     }
 
-    #[inline]
+    #[inline(never)]
     fn alloc_from_physical_std_slice(pk: &[u8]) -> Self {
         let mut v = Vec::with_capacity(pk.len() + 8);
         v.extend_from_slice(pk);
         Self::from_physical_vec(v)
     }
 
-    #[inline]
+    #[inline(never)]
     fn alloc_from_physical_slice(pk: &Self::Slice) -> Self {
         Self::alloc_from_physical_std_slice(pk.as_physical_std_slice())
     }
 
-    #[inline]
+    #[inline(never)]
     fn alloc_with_logical_capacity(capacity: usize) -> Self {
         let mut vec = Vec::with_capacity(Self::PHYSICAL_PREFIX.len() + capacity + 8);
         vec.extend_from_slice(Self::PHYSICAL_PREFIX);
         Self::_new_from_vec(vec)
     }
 
-    #[inline]
+    #[inline(never)]
     fn alloc_new() -> Self {
         // Note: 40 is a size suitable for TiDB payload (without ts suffix).
         Self::alloc_with_logical_capacity(40)
     }
 
-    #[inline]
+    #[inline(never)]
     fn alloc_from_logical_std_slice(lk: &[u8]) -> Self {
         let mut physical_key = Self::alloc_with_logical_capacity(lk.len());
         physical_key.write_bytes(lk).unwrap();
         physical_key
     }
 
-    #[inline]
+    #[inline(never)]
     fn alloc_from_logical_slice(lk: &LogicalKeySlice) -> Self {
         Self::alloc_from_logical_std_slice(lk.as_std_slice())
     }
@@ -131,7 +131,7 @@ pub trait PhysicalKey: Sized + Clone + KeyLike + NumberEncoder + BufferWriter + 
     }
 
     // FIXME: This is a MVCC knowledge.
-    #[inline]
+    #[inline(never)]
     fn alloc_from_user_std_slice(uk: &[u8]) -> Self {
         let mut key: Self =
             Self::alloc_with_logical_capacity(MemComparableByteCodec::encoded_len(uk.len()));
@@ -142,63 +142,63 @@ pub trait PhysicalKey: Sized + Clone + KeyLike + NumberEncoder + BufferWriter + 
 
     // FIXME: This is a MVCC knowledge.
     // FIXME: Use in place encoding to avoid allocation
-    #[inline]
+    #[inline(never)]
     fn alloc_from_user_vec(uk: Vec<u8>) -> Self {
         Self::alloc_from_user_std_slice(uk.as_slice())
     }
 
-    #[inline]
+    #[inline(never)]
     fn physical_len(&self) -> usize {
         self.as_physical_slice().len()
     }
 
-    #[inline]
+    #[inline(never)]
     fn logical_len(&self) -> usize {
         self.as_logical_slice().len()
     }
 
     // FIXME: This is a MVCC knowledge.
-    #[inline]
+    #[inline(never)]
     fn append_ts(&mut self, ts: u64) {
         self.write_u64_desc(ts).unwrap();
     }
 
     // FIXME: This is a MVCC knowledge.
-    #[inline]
+    #[inline(never)]
     fn shrink_ts(&mut self) {
         let len = self._vec_ref().len();
         self._vec_mut().truncate(len - 8);
     }
 
-    #[inline]
+    #[inline(never)]
     fn with_ts_temporarily(&mut self, ts: u64) -> PhysicalKeyTsGuard<'_, Self> {
         PhysicalKeyTsGuard::new(self, ts)
     }
 
-    #[inline]
+    #[inline(never)]
     fn get_ts(&self) -> u64 {
         self.as_physical_slice().get_ts()
     }
 
-    #[inline]
+    #[inline(never)]
     fn reset_from_physical_slice(&mut self, pk: &Self::Slice) {
         self._vec_mut().clear();
         self.write_bytes(pk.as_physical_std_slice()).unwrap();
     }
 
-    #[inline]
+    #[inline(never)]
     fn reset_from_logical_std_slice(&mut self, lk: &[u8]) {
         self._vec_mut().truncate(Self::PHYSICAL_PREFIX.len());
         self.write_bytes(lk).unwrap();
     }
 
-    #[inline]
+    #[inline(never)]
     fn reset_from_logical_slice(&mut self, lk: &LogicalKeySlice) {
         self.reset_from_logical_std_slice(lk.as_std_slice())
     }
 
     // FIXME: This is a MVCC knowledge.
-    #[inline]
+    #[inline(never)]
     fn reset_from_user_std_slice(&mut self, uk: &[u8]) {
         self._vec_mut().truncate(Self::PHYSICAL_PREFIX.len());
         self.write_comparable_bytes(uk).unwrap();
@@ -210,7 +210,7 @@ pub struct PhysicalKeyTsGuard<'a, Key: PhysicalKey> {
 }
 
 impl<'a, Key: PhysicalKey> PhysicalKeyTsGuard<'a, Key> {
-    #[inline]
+    #[inline(never)]
     pub fn new(key: &'a mut Key, ts: u64) -> Self {
         key.append_ts(ts);
         Self { key }
@@ -220,14 +220,14 @@ impl<'a, Key: PhysicalKey> PhysicalKeyTsGuard<'a, Key> {
 impl<'a, Key: PhysicalKey> Deref for PhysicalKeyTsGuard<'a, Key> {
     type Target = Key;
 
-    #[inline]
+    #[inline(never)]
     fn deref(&self) -> &Self::Target {
         self.key
     }
 }
 
 impl<'a, Key: PhysicalKey> Drop for PhysicalKeyTsGuard<'a, Key> {
-    #[inline]
+    #[inline(never)]
     fn drop(&mut self) {
         self.key.shrink_ts()
     }
@@ -248,38 +248,38 @@ pub trait PhysicalKeySlice: KeyLike + ToPhysicalKeySlice<Self> {
 
     fn as_logical_slice(&self) -> &LogicalKeySlice;
 
-    #[inline]
+    #[inline(never)]
     fn as_logical_slice_without_ts(&self) -> &LogicalKeySlice {
         self.as_logical_slice().as_physical_slice_without_ts()
     }
 
-    #[inline]
+    #[inline(never)]
     fn as_logical_std_slice(&self) -> &[u8] {
         self.as_logical_slice().as_std_slice()
     }
 
-    #[inline]
+    #[inline(never)]
     fn as_physical_slice_without_ts(&self) -> &Self {
         let s = self.as_physical_std_slice();
         Self::from_physical_std_slice(&s[..s.len() - 8])
     }
 
-    #[inline]
+    #[inline(never)]
     fn alloc_to_physical_key(&self) -> Self::OwnedKey {
         Self::OwnedKey::alloc_from_physical_slice(self)
     }
 
-    #[inline]
+    #[inline(never)]
     fn len(&self) -> usize {
         self.as_physical_std_slice().len()
     }
 
-    #[inline]
+    #[inline(never)]
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    #[inline]
+    #[inline(never)]
     fn get_ts(&self) -> u64 {
         self.as_logical_slice().get_ts()
     }
@@ -304,17 +304,17 @@ impl Display for BasicPhysicalKey {
 impl KeyLike for BasicPhysicalKey {}
 
 impl BufferWriter for BasicPhysicalKey {
-    #[inline]
+    #[inline(never)]
     unsafe fn bytes_mut(&mut self, size: usize) -> &mut [u8] {
         self.0.bytes_mut(size)
     }
 
-    #[inline]
+    #[inline(never)]
     unsafe fn advance_mut(&mut self, count: usize) {
         self.0.advance_mut(count)
     }
 
-    #[inline]
+    #[inline(never)]
     fn write_bytes(&mut self, values: &[u8]) -> codec::Result<()> {
         self.0.write_bytes(values)
     }
@@ -338,22 +338,22 @@ impl PhysicalKey for BasicPhysicalKey {
     const PHYSICAL_PREFIX: &'static [u8] = b"";
     type Slice = BasicPhysicalKeySlice;
 
-    #[inline]
+    #[inline(never)]
     fn _new_from_vec(vec: Vec<u8>) -> Self {
         BasicPhysicalKey(vec)
     }
 
-    #[inline]
+    #[inline(never)]
     fn _vec_ref(&self) -> &Vec<u8> {
         &self.0
     }
 
-    #[inline]
+    #[inline(never)]
     fn _vec_mut(&mut self) -> &mut Vec<u8> {
         &mut self.0
     }
 
-    #[inline]
+    #[inline(never)]
     fn _into_vec(self) -> Vec<u8> {
         self.0
     }
@@ -363,7 +363,7 @@ impl PhysicalKey for BasicPhysicalKey {
 pub struct BasicPhysicalKeySlice(pub [u8]);
 
 impl BasicPhysicalKeySlice {
-    #[inline]
+    #[inline(never)]
     pub fn from_logical_slice(s: &LogicalKeySlice) -> &Self {
         // For `BasicPhysicalKeySlice`, its logical slice is equal to the physical slice, so
         // we can do the transform directly.
@@ -393,22 +393,23 @@ impl PhysicalKeySlice for BasicPhysicalKeySlice {
     type LegacyKeySliceOwner = ();
 
     // TODO: Only to support `impl Key for ToPhysicalKeySlice<T>`. To be removed.
+    #[inline(never)]
     fn from_legacy_key(key: &Key) -> PKContainer<'_, (), Self> {
         let pk_slice = BasicPhysicalKeySlice::from_logical_slice(key.as_logical_key_slice());
         pk_slice.to_physical_slice_container()
     }
 
-    #[inline]
+    #[inline(never)]
     fn as_physical_std_slice(&self) -> &[u8] {
         &self.0
     }
 
-    #[inline]
+    #[inline(never)]
     fn from_physical_std_slice(s: &[u8]) -> &Self {
         unsafe { &*(s as *const [u8] as *const Self) }
     }
 
-    #[inline]
+    #[inline(never)]
     fn as_logical_slice(&self) -> &LogicalKeySlice {
         LogicalKeySlice::from_std_slice(&self.0)
     }
@@ -435,36 +436,36 @@ impl Display for LogicalKeySlice {
 impl KeyLike for LogicalKeySlice {}
 
 impl LogicalKeySlice {
-    #[inline]
+    #[inline(never)]
     pub fn from_std_slice(s: &[u8]) -> &Self {
         unsafe { &*(s as *const [u8] as *const Self) }
     }
 
     // FIXME: This is for compatibility. To be removed.
-    #[inline]
+    #[inline(never)]
     pub fn from_legacy_key(k: &Key) -> &Self {
         Self::from_std_slice(k.as_encoded().as_slice())
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn as_std_slice(&self) -> &[u8] {
         &self.0
     }
 
     // FIXME: This is a MVCC knowledge.
-    #[inline]
+    #[inline(never)]
     pub fn as_physical_slice_without_ts(&self) -> &LogicalKeySlice {
         let s = self.as_std_slice();
         Self::from_std_slice(&s[..s.len() - 8])
     }
 
     // FIXME: This is a MVCC knowledge.
-    #[inline]
+    #[inline(never)]
     pub fn alloc_to_user_vec(&self) -> codec::Result<Vec<u8>> {
         self.as_std_slice().read_comparable_bytes()
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn get_ts(&self) -> u64 {
         let s = self.as_std_slice();
         let mut s_ts = &s[s.len() - 8..];
@@ -475,14 +476,14 @@ impl LogicalKeySlice {
 impl Deref for LogicalKeySlice {
     type Target = [u8];
 
-    #[inline]
+    #[inline(never)]
     fn deref(&self) -> &[u8] {
         &self.0
     }
 }
 
 impl DerefMut for LogicalKeySlice {
-    #[inline]
+    #[inline(never)]
     fn deref_mut(&mut self) -> &mut [u8] {
         &mut self.0
     }
@@ -533,7 +534,7 @@ where
 {
     type SliceOwner = T::SliceOwner;
 
-    #[inline]
+    #[inline(never)]
     fn to_physical_slice_container(&self) -> PKContainer<'_, T::SliceOwner, U> {
         <T as ToPhysicalKeySlice<U>>::to_physical_slice_container(*self)
     }
@@ -546,7 +547,7 @@ where
 {
     type SliceOwner = T::SliceOwner;
 
-    #[inline]
+    #[inline(never)]
     fn to_physical_slice_container(&self) -> PKContainer<'_, T::SliceOwner, U> {
         <T as ToPhysicalKeySlice<U>>::to_physical_slice_container(*self)
     }
@@ -556,7 +557,7 @@ impl ToPhysicalKeySlice<BasicPhysicalKeySlice> for BasicPhysicalKeySlice {
     // Any PhysicalKeySlice itself implements ToPhysicalKeySlice.
     type SliceOwner = ();
 
-    #[inline]
+    #[inline(never)]
     fn to_physical_slice_container(&self) -> PKContainer<'_, (), BasicPhysicalKeySlice> {
         let r = self as *const BasicPhysicalKeySlice;
         unsafe { PKContainer::new((), r) }
@@ -568,7 +569,7 @@ impl ToPhysicalKeySlice<BasicPhysicalKeySlice> for BasicPhysicalKey {
     // extra owned value.
     type SliceOwner = ();
 
-    #[inline]
+    #[inline(never)]
     fn to_physical_slice_container(&self) -> PKContainer<'_, (), BasicPhysicalKeySlice> {
         self.as_physical_slice().to_physical_slice_container()
     }
@@ -577,6 +578,7 @@ impl ToPhysicalKeySlice<BasicPhysicalKeySlice> for BasicPhysicalKey {
 impl<T: PhysicalKeySlice + ?Sized> ToPhysicalKeySlice<T> for Key {
     type SliceOwner = T::LegacyKeySliceOwner;
 
+    #[inline(never)]
     fn to_physical_slice_container(&self) -> PKContainer<'_, Self::SliceOwner, T> {
         T::from_legacy_key(self)
     }
@@ -586,7 +588,7 @@ impl ToPhysicalKeySlice<BasicPhysicalKeySlice> for [u8] {
     // Allows `&[u8]` to be used directly as a `BasicPhysicalKeySlice`.
     type SliceOwner = ();
 
-    #[inline]
+    #[inline(never)]
     fn to_physical_slice_container(&self) -> PKContainer<'_, (), BasicPhysicalKeySlice> {
         let pk_slice = BasicPhysicalKeySlice::from_physical_std_slice(self);
         pk_slice.to_physical_slice_container()
@@ -596,7 +598,7 @@ impl ToPhysicalKeySlice<BasicPhysicalKeySlice> for [u8] {
 impl<const N: usize> ToPhysicalKeySlice<BasicPhysicalKeySlice> for [u8; N] {
     type SliceOwner = ();
 
-    #[inline]
+    #[inline(never)]
     fn to_physical_slice_container(&self) -> PKContainer<'_, (), BasicPhysicalKeySlice> {
         (&self[..]).to_physical_slice_container()
     }
@@ -605,7 +607,7 @@ impl<const N: usize> ToPhysicalKeySlice<BasicPhysicalKeySlice> for [u8; N] {
 impl ToPhysicalKeySlice<BasicPhysicalKeySlice> for Vec<u8> {
     type SliceOwner = ();
 
-    #[inline]
+    #[inline(never)]
     fn to_physical_slice_container(&self) -> PKContainer<'_, (), BasicPhysicalKeySlice> {
         self.as_slice().to_physical_slice_container()
     }
