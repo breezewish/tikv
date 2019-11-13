@@ -399,6 +399,7 @@ impl<I: Iterator> Cursor<I> {
     }
 
     /// Updates the max visible physical key.
+    #[inline(never)]
     fn set_max_physical_key(&mut self, key: &<I::Key as PhysicalKey>::Slice) {
         match &mut self.max_physical_key {
             None => {
@@ -411,6 +412,7 @@ impl<I: Iterator> Cursor<I> {
     }
 
     /// Updates the min visible physical key.
+    #[inline(never)]
     fn set_min_physical_key(&mut self, key: &<I::Key as PhysicalKey>::Slice) {
         match &mut self.min_physical_key {
             None => {
@@ -422,6 +424,7 @@ impl<I: Iterator> Cursor<I> {
         }
     }
 
+    #[inline(never)]
     pub fn seek(
         &mut self,
         key: impl ToPhysicalKeySlice<<I::Key as PhysicalKey>::Slice>,
@@ -461,6 +464,7 @@ impl<I: Iterator> Cursor<I> {
     ///
     /// This method assume the current position of cursor is
     /// around `key`, otherwise you should use `seek` instead.
+    #[inline(never)]
     pub fn near_seek(
         &mut self,
         key: impl ToPhysicalKeySlice<<I::Key as PhysicalKey>::Slice>,
@@ -520,6 +524,7 @@ impl<I: Iterator> Cursor<I> {
     ///
     /// This method assume the current position of cursor is
     /// around `key`, otherwise you should `seek` first.
+    #[inline(never)]
     pub fn get(
         &mut self,
         key: impl ToPhysicalKeySlice<<I::Key as PhysicalKey>::Slice>,
@@ -539,6 +544,7 @@ impl<I: Iterator> Cursor<I> {
         Ok(None)
     }
 
+    #[inline(never)]
     pub fn seek_for_prev(
         &mut self,
         key: impl ToPhysicalKeySlice<<I::Key as PhysicalKey>::Slice>,
@@ -572,6 +578,7 @@ impl<I: Iterator> Cursor<I> {
     }
 
     /// Find the largest key that is not greater than the specific key.
+    #[inline(never)]
     pub fn near_seek_for_prev(
         &mut self,
         key: impl ToPhysicalKeySlice<<I::Key as PhysicalKey>::Slice>,
@@ -628,6 +635,7 @@ impl<I: Iterator> Cursor<I> {
         Ok(true)
     }
 
+    #[inline(never)]
     pub fn reverse_seek(
         &mut self,
         key: impl ToPhysicalKeySlice<<I::Key as PhysicalKey>::Slice>,
@@ -652,6 +660,7 @@ impl<I: Iterator> Cursor<I> {
     ///
     /// This method assume the current position of cursor is
     /// around `key`, otherwise you should use `reverse_seek` instead.
+    #[inline(never)]
     pub fn near_reverse_seek(
         &mut self,
         key: impl ToPhysicalKeySlice<<I::Key as PhysicalKey>::Slice>,
@@ -670,7 +679,7 @@ impl<I: Iterator> Cursor<I> {
         Ok(true)
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn physical_key(&self, statistics: &mut CFStatistics) -> &<I::Key as PhysicalKey>::Slice {
         let key = self.iter.physical_key();
         if !self.mark_key_read() {
@@ -680,18 +689,18 @@ impl<I: Iterator> Cursor<I> {
         key
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn logical_key(&self, statistics: &mut CFStatistics) -> &LogicalKeySlice {
         self.physical_key(statistics).as_logical_slice()
     }
 
     // TODO: Remove this compatible interface.
-    #[inline]
+    #[inline(never)]
     pub fn key(&self, statistics: &mut CFStatistics) -> &[u8] {
         self.logical_key(statistics).as_std_slice()
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn value(&self, statistics: &mut CFStatistics) -> &[u8] {
         let value = self.iter.value();
         if !self.mark_value_read() {
@@ -700,21 +709,21 @@ impl<I: Iterator> Cursor<I> {
         value
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn seek_to_first(&mut self, statistics: &mut CFStatistics) -> bool {
         statistics.seek += 1;
         self.mark_unread();
         self.iter.seek_to_first()
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn seek_to_last(&mut self, statistics: &mut CFStatistics) -> bool {
         statistics.seek += 1;
         self.mark_unread();
         self.iter.seek_to_last()
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn internal_seek(
         &mut self,
         key: impl ToPhysicalKeySlice<<I::Key as PhysicalKey>::Slice>,
@@ -726,7 +735,7 @@ impl<I: Iterator> Cursor<I> {
         self.iter.seek(&*key)
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn internal_seek_for_prev(
         &mut self,
         key: impl ToPhysicalKeySlice<<I::Key as PhysicalKey>::Slice>,
@@ -738,14 +747,14 @@ impl<I: Iterator> Cursor<I> {
         self.iter.seek_for_prev(&*key)
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn next(&mut self, statistics: &mut CFStatistics) -> bool {
         statistics.next += 1;
         self.mark_unread();
         self.iter.next()
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn prev(&mut self, statistics: &mut CFStatistics) -> bool {
         statistics.prev += 1;
         self.mark_unread();
@@ -774,7 +783,7 @@ impl<I: Iterator> Cursor<I> {
     // (1) We reached the end of the data. In this case, status() is OK();
     // (2) there is an error. In this case status() is not OK().
     // So check status when iterator is invalidated.
-    #[inline]
+    #[inline(never)]
     pub fn valid(&self) -> Result<bool> {
         if !self.iter.valid() {
             if let Err(e) = self.iter.status() {

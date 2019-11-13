@@ -30,12 +30,6 @@ fn execute<M: criterion::measurement::Measurement + 'static>(c: &mut criterion::
 #[cfg(target_os = "linux")]
 fn run_bench(measurement: &str) {
     match measurement {
-        "TOT_INS" => {
-            let mut c = criterion::Criterion::default()
-                .with_measurement(criterion_papi::PapiMeasurement::new("PAPI_TOT_INS"))
-                .configure_from_args();
-            execute(&mut c);
-        }
         "CPU_TIME" => {
             let mut c = criterion::Criterion::default()
                 .with_measurement(criterion_cpu_time::PosixTime::UserTime)

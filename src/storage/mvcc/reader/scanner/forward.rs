@@ -54,6 +54,7 @@ impl<S: Snapshot> ForwardScanner<S> {
     }
 
     /// Get the next key-value pair, in forward order.
+    #[inline(never)]
     pub fn read_next(&mut self) -> Result<Option<(Key, Value)>> {
         if !self.is_started {
             if self.cfg.lower_bound.is_some() {
@@ -201,7 +202,7 @@ impl<S: Snapshot> ForwardScanner<S> {
 
     /// Attempt to get the value of a key specified by `user_key` and `self.cfg.ts`. This function
     /// requires that the write cursor is currently pointing to the latest version of `user_key`.
-    #[inline]
+    #[inline(never)]
     fn get(&mut self, ts: u64, met_next_user_key: &mut bool) -> Result<Option<Value>> {
         // assert!(self.write_cursor.valid()?);
 
@@ -317,7 +318,7 @@ impl<S: Snapshot> ForwardScanner<S> {
     /// If it is pointing to current user key, we need to step it until we meet a new
     /// key. We first try to `next()` a few times. If still not reaching another user
     /// key, we `seek()`.
-    #[inline]
+    #[inline(never)]
     fn move_write_cursor_to_next_user_key(&mut self) -> Result<()> {
         if !self.write_cursor.valid()? {
             // Key space ended. We are done here.
@@ -351,7 +352,7 @@ impl<S: Snapshot> ForwardScanner<S> {
     }
 
     /// Create the default cursor if it doesn't exist.
-    #[inline]
+    #[inline(never)]
     fn ensure_default_cursor(&mut self) -> Result<()> {
         if self.default_cursor.is_some() {
             return Ok(());
