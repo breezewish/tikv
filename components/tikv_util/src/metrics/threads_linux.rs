@@ -325,6 +325,10 @@ impl TidRetriever {
                     self.tid_buffer_update_interval = TID_MAX_UPDATE_INTERVAL;
                 }
             } else {
+                error!(
+                    "!! TID BUFFER CHANGED prev = {:?}, new = {:?}",
+                    self.tid_buffer, new_tid_buffer
+                );
                 self.tid_buffer = new_tid_buffer;
                 self.tid_buffer_update_interval = TID_MIN_UPDATE_INTERVAL;
                 self.tid_buffer_last_update = Instant::now();
